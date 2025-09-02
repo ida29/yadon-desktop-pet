@@ -98,6 +98,13 @@ TMUX_CLI_NAMES = [
     'gemini'
 ]
 
+# Friendly display names for tools (match by substring, case-insensitive)
+FRIENDLY_TOOL_NAMES = {
+    'codex': 'コダック',
+    'codex-cli': 'コダック'
+    # 例: 'claude': 'クロード', 'gemini': 'ジェミニ' など、必要に応じて追加
+}
+
 # Activity monitoring
 ACTIVITY_CHECK_INTERVAL_MS = 10000  # 10 seconds
 OUTPUT_IDLE_THRESHOLD_SEC = 60      # 60 seconds of no output -> notify (legacy)

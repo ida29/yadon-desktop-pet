@@ -24,7 +24,8 @@ from config import (
     IDLE_HINT_MESSAGES,
     IDLE_SOFT_THRESHOLD_SEC, IDLE_FORCE_THRESHOLD_SEC,
     YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
-    FACE_ANIMATION_INTERVAL_FAST
+    FACE_ANIMATION_INTERVAL_FAST,
+    FRIENDLY_TOOL_NAMES
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -325,8 +326,14 @@ class YadonPet(QWidget):
     def _friendly_cli_name(self, name: str) -> str:
         try:
             s = (name or '').lower()
-            if 'codex-cli' in s or 'codex' in s:
-                return 'コダック'
+            # Mapping by configured friendly names
+            for key, label in FRIENDLY_TOOL_NAMES.items():
+                if key.lower() in s:
+                    return label
+            # Fall back to known CLI tokens
+            for key in TMUX_CLI_NAMES:
+                if key in s:
+                    return key
             return name
         except Exception:
             return name
