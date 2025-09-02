@@ -16,7 +16,7 @@ from config import (
     COLOR_SCHEMES, RANDOM_MESSAGES, WELCOME_MESSAGES, GOODBYE_MESSAGES,
     PIXEL_SIZE, WINDOW_WIDTH, WINDOW_HEIGHT,
     FACE_ANIMATION_INTERVAL, RANDOM_ACTION_MIN_INTERVAL, RANDOM_ACTION_MAX_INTERVAL,
-    CLAUDE_CHECK_INTERVAL, HOOK_CHECK_INTERVAL, MOVEMENT_DURATION,
+    CLAUDE_CHECK_INTERVAL, MOVEMENT_DURATION,
     TINY_MOVEMENT_RANGE, SMALL_MOVEMENT_RANGE, TINY_MOVEMENT_PROBABILITY,
     BUBBLE_DISPLAY_TIME, PID_FONT_FAMILY, PID_FONT_SIZE,
     VARIANT_ORDER, MAX_YADON_COUNT,
@@ -28,7 +28,7 @@ from config import (
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
-from hook_handler import HookHandler
+# Hook handling removed (hooks are no longer used)
 from pixel_data import build_pixel_data
 from config import DEBUG_LOG
 
@@ -115,8 +115,6 @@ class YadonPet(QWidget):
         # tmux session detection
         self.tmux_active = False
         
-        # Hook handler
-        self.hook_handler = HookHandler(self.tmux_session)
         # Activity monitoring state per tmux pane
         self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, soft_notified, force_done, name}
         # Motivation switch (toggle via right-click menu)
@@ -141,8 +139,7 @@ class YadonPet(QWidget):
             self.action_timer.stop()
         if hasattr(self, 'monitor_timer'):
             self.monitor_timer.stop()
-        if hasattr(self, 'hook_timer'):
-            self.hook_timer.stop()
+        # hook_timer removed (hooks are not used)
         super().closeEvent(event)
     
     def init_ui(self):
@@ -194,16 +191,10 @@ class YadonPet(QWidget):
         self.action_timer.start(random.randint(RANDOM_ACTION_MIN_INTERVAL, RANDOM_ACTION_MAX_INTERVAL))
     
     def setup_tmux_monitor(self):
-        """Monitor tmux sessions and hook files"""
+        """Monitor tmux sessions"""
         self.monitor_timer = QTimer()
         self.monitor_timer.timeout.connect(self.check_tmux)
         self.monitor_timer.start(CLAUDE_CHECK_INTERVAL)
-        
-        # Setup separate hook monitor with faster interval
-        self.hook_timer = QTimer()
-        self.hook_timer.timeout.connect(self.check_hook_messages)
-        self.hook_timer.start(HOOK_CHECK_INTERVAL)
-        
         # Initial check
         self.check_tmux()
 
@@ -566,21 +557,7 @@ class YadonPet(QWidget):
         except Exception as e:
             print(f"Error checking tmux status: {e}")
     
-    def check_hook_messages(self):
-        """Check for hook messages (tmux) in temp files"""
-        result = self.hook_handler.check_hook_messages()
-        if result:
-            bubble_type, message = result
-            if self.bubble:
-                self.bubble.close()
-                self.bubble = None
-            self.bubble = SpeechBubble(message, self, bubble_type=bubble_type)
-            self.bubble.show()
-            def close_bubble():
-                if self.bubble:
-                    self.bubble.close()
-                    self.bubble = None
-            QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
+    # check_hook_messages removed (hooks not used)
     
     
     def show_welcome_message(self):
