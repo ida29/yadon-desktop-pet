@@ -220,7 +220,8 @@ class YadonPet(QWidget):
                 self.tmux_status_text = 'N/A'
                 return
             # Format similar to tmux left-bottom: session, window(tab), pane
-            fmt = '#S #W #P'
+            # Show session, window index (numeric), pane index
+            fmt = '#S #I #P'
             res = self._tmux_run(['display-message', '-p', '-t', str(self.tmux_session), fmt])
             if res and res.returncode == 0:
                 txt = res.stdout.strip()

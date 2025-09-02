@@ -101,7 +101,7 @@ TMUX_CLI_NAMES = [
 # Friendly display names for tools (match by substring, case-insensitive)
 FRIENDLY_TOOL_NAMES = {
     'codex': 'コダック',
-    'codex-cli': 'コダック'
+    'codex-cli': 'コダック',
     'claude': 'クロバット',
     'gemini': 'シェイミ'
 }
