@@ -418,6 +418,12 @@ class YadonPet(QWidget):
                             self.bubble = None
                         self.bubble = SpeechBubble(msg, self, bubble_type='hook')
                         self.bubble.show()
+                        # Auto-hide after configured duration
+                        def _close_soft():
+                            if self.bubble:
+                                self.bubble.close()
+                                self.bubble = None
+                        QTimer.singleShot(BUBBLE_DISPLAY_TIME, _close_soft)
                         st['soft_notified'] = True
                     # Second stage: force if enabled
                     if idle >= IDLE_FORCE_THRESHOLD_SEC and not st.get('force_done'):
@@ -431,6 +437,11 @@ class YadonPet(QWidget):
                                 self.bubble = None
                             self.bubble = SpeechBubble(hard_msg, self, bubble_type='hook')
                             self.bubble.show()
+                            def _close_force():
+                                if self.bubble:
+                                    self.bubble.close()
+                                    self.bubble = None
+                            QTimer.singleShot(BUBBLE_DISPLAY_TIME, _close_force)
                         st['force_done'] = True
                 self.pane_state[pane_id] = st
             # Cleanup state for panes that disappeared
