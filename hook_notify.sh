@@ -1,16 +1,20 @@
 #!/bin/bash
-# Get the Claude Code PID - look for process exactly named 'claude'
-CLAUDE_PID=$(ps aux | grep -E '^[^ ]+[ ]+[0-9]+.*claude[ ]*$' | grep -v grep | awk '{print $2}' | head -1)
+# tmux-focused notification hook
+# Usage from tmux hooks (recommended):
+#   set-hook -g some-event "run-shell '/path/to/hook_notify.sh #{session_name}'"
 
-if [ -z "$CLAUDE_PID" ]; then
-    # Fallback: try to find any claude process in terminal
-    CLAUDE_PID=$(ps aux | grep 'claude' | grep -v grep | grep -v 'Claude.app' | awk '{print $2}' | head -1)
+SESSION_NAME="$1"
+
+# If not provided, attempt to resolve from current client (best-effort)
+if [ -z "$SESSION_NAME" ]; then
+  SESSION_NAME=$(tmux display-message -p '#{session_name}' 2>/dev/null)
 fi
 
-if [ -z "$CLAUDE_PID" ]; then
-    # Last fallback to parent PID method
-    CLAUDE_PID=$(ps -o ppid= -p $$ | xargs ps -o ppid= -p | tr -d ' ')
+if [ -n "$SESSION_NAME" ]; then
+  echo "notification:" > "/tmp/tmux_hook_${SESSION_NAME}.txt"
+  echo "[$(date)] Notification hook called, tmux session: $SESSION_NAME" >> /tmp/hook_debug.log
+else
+  # Fallback to generic file
+  echo "notification:" > /tmp/tmux_hook.txt
+  echo "[$(date)] Notification hook called, generic (no session)" >> /tmp/hook_debug.log
 fi
-
-echo "notification:" > /tmp/claude_hook_${CLAUDE_PID}.txt
-echo "[$(date)] Notification hook called, Claude PID: $CLAUDE_PID" >> /tmp/hook_debug.log

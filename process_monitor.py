@@ -1,14 +1,51 @@
-"""Process monitoring functionality for Yadon Desktop Pet"""
+"""Tmux session monitoring functionality for Yadon Desktop Pet"""
 
+import os
+import shutil
 import subprocess
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
-from config import VARIANT_ORDER, MAX_YADON_COUNT
+from config import VARIANT_ORDER, MAX_YADON_COUNT, DEBUG_LOG
+
+
+def _log_debug(message: str):
+    try:
+        with open(DEBUG_LOG, 'a') as log:
+            log.write(f"[process_monitor] {message}\n")
+    except Exception:
+        pass
+
+
+def _tmux_bin() -> str:
+    """Resolve tmux binary path robustly."""
+    # Try environment PATH first
+    path = shutil.which('tmux')
+    if path:
+        return path
+    # Common Homebrew paths
+    for candidate in ('/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'):
+        if os.path.exists(candidate):
+            return candidate
+    # Fallback to plain name
+    return 'tmux'
+
+
+def _run_tmux(args):
+    """Run tmux with resolved binary, return CompletedProcess or None."""
+    cmd = [_tmux_bin()] + args
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            _log_debug(f"tmux call failed: {' '.join(cmd)} | rc={result.returncode} | err={result.stderr.strip()}")
+        return result
+    except Exception as e:
+        _log_debug(f"tmux invoke error: {e}")
+        return None
 
 
 class ProcessMonitor(QTimer):
-    """Monitor Claude Code processes and manage Yadon instances"""
+    """Monitor tmux sessions and manage Yadon instances"""
     def __init__(self, initial_pets):
         super().__init__()
         self.pets = initial_pets
@@ -17,36 +54,42 @@ class ProcessMonitor(QTimer):
         self.setInterval(5000)  # Check every 5 seconds
     
     def check_processes(self):
-        current_count = count_claude_processes()
+        current_count = count_tmux_sessions()
+        _log_debug(f"check_processes: last_count={self.last_count}, current_count={current_count}")
         current_count = min(current_count, MAX_YADON_COUNT) if current_count > 0 else 0
         
         if current_count != self.last_count:
             # Process count changed, update Yadon instances
             if current_count > self.last_count:
                 # Add more Yadons
-                screen = QApplication.primaryScreen().geometry()
+                # Prefer the screen under the cursor to place new pets visibly
+                from PyQt6.QtGui import QCursor
+                screen_obj = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+                screen = screen_obj.geometry()
                 
                 # Calculate positions for bottom-right alignment
                 margin = 20  # Margin from screen edges
                 spacing = 10  # Space between Yadons
                 
-                # Get current Claude PIDs (actual claude processes only)
-                claude_pids = get_claude_pids()
+                # Get current tmux session names
+                sessions = get_tmux_sessions()
+                _log_debug(f"adding pets for sessions={sessions}")
                 
                 for i in range(self.last_count, current_count):
                     # Import here to avoid circular import
                     from yadon_pet import YadonPet
                     import random
                     
-                    claude_pid = claude_pids[i] if i < len(claude_pids) else None
+                    session_name = sessions[i] if i < len(sessions) else None
                     # Randomly select variant with equal probability
                     variant = random.choice(VARIANT_ORDER)
-                    pet = YadonPet(claude_pid=claude_pid, variant=variant)
+                    pet = YadonPet(tmux_session=session_name, variant=variant)
                     
                     # Position in bottom-right, stacking from right to left
                     from config import WINDOW_WIDTH, WINDOW_HEIGHT
                     x_pos = screen.width() - margin - (WINDOW_WIDTH + spacing) * (len(self.pets) + 1)
                     y_pos = screen.height() - margin - WINDOW_HEIGHT
+                    _log_debug(f"moving pet for session={session_name} to ({x_pos},{y_pos})")
                     pet.move(x_pos, y_pos)
                     
                     self.pets.append(pet)
@@ -73,63 +116,37 @@ class ProcessMonitor(QTimer):
             
             self.last_count = current_count
 
-
-def count_claude_processes():
-    """Count the number of Claude Code processes running"""
+def count_tmux_sessions():
+    """Count the number of tmux sessions"""
     try:
-        # Use ps to get more detailed info and filter properly
-        result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-        lines = result.stdout.strip().split('\n')
-        claude_count = 0
-        for line in lines:
-            # Count only actual claude processes (not node wrapper, not yadon)
-            if 'claude' in line and 'yadon' not in line and 'grep' not in line and 'node' not in line:
-                # Look for the actual claude binary process
-                parts = line.split()
-                # Check if the command is just "claude" (not a path or other command)
-                # The command may be at different column positions depending on process state
-                if len(parts) > 10:
-                    command_start = 10
-                    # Check if it's actually the claude binary
-                    if parts[command_start] == 'claude' or (len(parts) > 11 and parts[11] == 'claude'):
-                        claude_count += 1
-        return claude_count
+        result = _run_tmux(['list-sessions', '-F', '#{session_name}'])
+        if result is None or result.returncode != 0:
+            return 0
+        output = result.stdout.strip()
+        if not output:
+            return 0
+        sessions = [line.strip() for line in output.split('\n') if line.strip()]
+        return len(sessions)
     except Exception:
         return 0
 
 
-def get_claude_pids():
-    """Get list of Claude process PIDs"""
+def get_tmux_sessions():
+    """Get list of tmux session names"""
     try:
-        result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-        lines = result.stdout.strip().split('\n')
-        claude_pids = []
-        for line in lines:
-            if 'claude' in line and 'yadon' not in line and 'node' not in line and 'grep' not in line:
-                parts = line.split()
-                # Check if the command is just "claude" (actual claude process)
-                # The command may be at different column positions depending on process state
-                if len(parts) > 10:
-                    # Find where the command starts (after process state columns)
-                    command_start = 10
-                    # Check if it's actually the claude binary
-                    if parts[command_start] == 'claude' or (len(parts) > 11 and parts[11] == 'claude'):
-                        claude_pids.append(parts[1])  # PID is second column
-        return claude_pids
+        result = _run_tmux(['list-sessions', '-F', '#{session_name}'])
+        if result is None or result.returncode != 0:
+            return []
+        sessions = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+        return sessions
     except Exception:
         return []
 
 
-def find_claude_pid():
-    """Find a Claude process PID"""
+def find_tmux_session():
+    """Find a tmux session name (first one)"""
     try:
-        result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-        lines = result.stdout.strip().split('\n')
-        for line in lines:
-            if 'claude' in line and 'yadon' not in line and 'node' not in line and 'grep' not in line:
-                parts = line.split()
-                if len(parts) > 1:
-                    return parts[1]  # Return PID (second column)
+        sessions = get_tmux_sessions()
+        return sessions[0] if sessions else None
     except Exception:
-        pass
-    return None
+        return None

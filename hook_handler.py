@@ -6,22 +6,22 @@ from config import HOOK_FILE_PATTERNS, HOOK_RESPONSES, DEBUG_LOG
 
 
 class HookHandler:
-    def __init__(self, claude_pid):
-        self.claude_pid = claude_pid
+    def __init__(self, tmux_session):
+        self.tmux_session = tmux_session
         self.last_hook_file = None
         self.last_hook_time = 0
     
     def check_hook_messages(self):
-        """Check for Claude Code hook messages in temp files"""
+        """Check for hook messages (tmux-aware) in temp files"""
         try:
-            # Look for Claude Code hook files specific to this Claude PID
+            # Look for hook files specific to this tool PID
             hook_locations = []
             
-            # If we have a specific Claude PID, check PID-specific files first
-            if self.claude_pid:
+            # If we have a specific tmux session, check session-specific files first
+            if self.tmux_session:
                 for pattern in HOOK_FILE_PATTERNS:
-                    if '{pid}' in pattern:
-                        hook_locations.append(pattern.format(pid=self.claude_pid))
+                    if '{session}' in pattern:
+                        hook_locations.append(pattern.format(session=self.tmux_session))
                     else:
                         # Add non-PID patterns as-is
                         if pattern.startswith('~'):
@@ -29,16 +29,16 @@ class HookHandler:
                         else:
                             hook_locations.append(pattern)
             else:
-                # No PID, just check generic files
+                # No session, just check generic files
                 for pattern in HOOK_FILE_PATTERNS:
-                    if '{pid}' not in pattern:
+                    if '{session}' not in pattern:
                         if pattern.startswith('~'):
                             hook_locations.append(os.path.expanduser(pattern))
                         else:
                             hook_locations.append(pattern)
             
             # Log to file for debugging
-            self._debug_log(f"Yadon PID {os.getpid()} checking hooks for Claude PID {self.claude_pid}")
+            self._debug_log(f"Yadon PID {os.getpid()} checking hooks for tmux session {self.tmux_session}")
             
             for hook_file in hook_locations:
                 if os.path.exists(hook_file):
@@ -58,7 +58,7 @@ class HookHandler:
                             with open(hook_file, 'w') as f:
                                 f.write('')
                             return response
-                        elif self.claude_pid and f'_{self.claude_pid}' in hook_file:
+                        elif self.tmux_session and f'_{self.tmux_session}' in hook_file:
                             # PID-specific hook, always respond
                             response = self._get_hook_response(hook_message)
                             # Clear the hook file after processing
@@ -74,8 +74,8 @@ class HookHandler:
     def _should_respond_to_generic_hook(self, hook_file):
         """Check if this Yadon instance should respond to generic hooks"""
         # For generic hook files, only the first Yadon responds
-        if 'yadon_hook.txt' in hook_file or 'claude_hook.txt' in hook_file:
-            if '{pid}' not in hook_file:  # Make sure it's really generic
+        if 'yadon_hook.txt' in hook_file or 'tmux_hook.txt' in hook_file:
+            if '{session}' not in hook_file:  # Make sure it's really generic
                 # Check if we're the first by having the lowest PID
                 try:
                     result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)

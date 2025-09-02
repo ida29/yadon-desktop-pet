@@ -43,7 +43,7 @@ RANDOM_MESSAGES = [
     "ファイト　やぁん！　なにと　たたかうか　しらない　やぁん……"
 ]
 
-# Welcome messages when Claude Code starts
+# Welcome messages when development tool starts (Claude/Codex)
 WELCOME_MESSAGES = [
     "おっ！　きた　やぁん！　おてつだい　する　やぁん！",
     "おしごと　やぁん？　ヤドン　がんばる　やぁん！",
@@ -52,7 +52,7 @@ WELCOME_MESSAGES = [
     "きょうも　がんばる　やぁん！　おうえん　する　やぁん！"
 ]
 
-# Goodbye messages when Claude Code stops
+# Goodbye messages when development tool stops (Claude/Codex)
 GOODBYE_MESSAGES = [
     "しゅうりょう　やぁん……　またね　やぁん！",
     "おつかれさま　やぁん……　ヤドン　ねる　やぁん……",
@@ -104,14 +104,14 @@ VARIANT_ORDER = ['normal', 'shiny', 'galarian', 'galarian_shiny']
 # Maximum number of Yadon instances
 MAX_YADON_COUNT = 4
 
-# Hook file locations
+# Hook file locations (tmux focused)
 HOOK_FILE_PATTERNS = [
-    '/tmp/yadon_hook_{pid}.txt',
-    '/tmp/claude_hook_{pid}.txt',
+    # Session-specific
+    '/tmp/yadon_hook_{session}.txt',
+    '/tmp/tmux_hook_{session}.txt',
+    # Generic (first Yadon responds)
     '/tmp/yadon_hook.txt',
-    '/tmp/claude_hook.txt',
-    '/var/tmp/claude_hook.txt',
-    '~/.claude/hook.txt'
+    '/tmp/tmux_hook.txt'
 ]
 
 # Debug log location

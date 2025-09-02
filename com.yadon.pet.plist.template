@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
-        <string>/Users/yida/work/yadon-desktop-pet-/yadon_pet.py</string>
+        <string>{{YADON_PATH}}/yadon_pet.py</string>
     </array>
     
     <key>RunAtLoad</key>

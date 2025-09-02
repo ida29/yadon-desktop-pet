@@ -5,9 +5,11 @@ import signal
 import subprocess
 import os
 import fcntl
+import sys as _sys
+import ctypes
 from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect
-from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont
+from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect, QEvent
+from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont, QCursor
 
 from config import (
     COLOR_SCHEMES, RANDOM_MESSAGES, WELCOME_MESSAGES, GOODBYE_MESSAGES,
@@ -19,14 +21,79 @@ from config import (
     VARIANT_ORDER, MAX_YADON_COUNT
 )
 from speech_bubble import SpeechBubble
-from process_monitor import ProcessMonitor, count_claude_processes, get_claude_pids, find_claude_pid
+from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
 from hook_handler import HookHandler
 from pixel_data import build_pixel_data
+from config import DEBUG_LOG
+
+def _log_debug(msg: str):
+    try:
+        with open(DEBUG_LOG, 'a') as f:
+            f.write(f"[yadon_pet] {msg}\n")
+    except Exception:
+        pass
+
+
+def _mac_set_top_nonactivating(widget: QWidget):
+    """macOS: force window to status/floating level without stealing focus."""
+    try:
+        if _sys.platform != 'darwin':
+            return
+        view_ptr = int(widget.winId())
+        if not view_ptr:
+            return
+        objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+        cg = ctypes.cdll.LoadLibrary('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+
+        # selectors
+        sel_registerName = objc.sel_registerName
+        sel_registerName.restype = ctypes.c_void_p
+        sel = lambda name: sel_registerName(name)
+
+        objc.objc_msgSend.restype = ctypes.c_void_p
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+        # NSView -> NSWindow
+        window = objc.objc_msgSend(ctypes.c_void_p(view_ptr), sel(b'window'))
+        if not window:
+            return
+
+        # Get a high window level; try multiple keys and pick the highest
+        cg.CGWindowLevelForKey.argtypes = [ctypes.c_int]
+        cg.CGWindowLevelForKey.restype = ctypes.c_int
+        KEYS = {
+            'floating': 3,      # kCGFloatingWindowLevelKey
+            'modal': 8,         # kCGModalPanelWindowLevelKey
+            'status': 18,       # kCGStatusWindowLevelKey
+            'popup': 101        # kCGPopUpMenuWindowLevelKey
+        }
+        levels = {name: int(cg.CGWindowLevelForKey(ctypes.c_int(val))) for name, val in KEYS.items()}
+        level = max(levels.values())
+        _log_debug(f"macOS levels: {levels}, chosen={level}")
+
+        # setLevel:
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+        objc.objc_msgSend(window, sel(b'setLevel:'), ctypes.c_long(int(level)))
+
+        # Avoid focus with Qt-side flags; do not call non-existent setters.
+
+        # Join all spaces to remain visible across desktops (optional)
+        try:
+            # NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
+            behavior = ctypes.c_ulong(1)
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+            objc.objc_msgSend(window, sel(b'setCollectionBehavior:'), behavior)
+        except Exception:
+            pass
+
+        _log_debug(f"macOS: elevated window level to {level}")
+    except Exception as e:
+        _log_debug(f"macOS elevate failed: {e}")
 
 class YadonPet(QWidget):
-    def __init__(self, claude_pid=None, variant='normal'):
+    def __init__(self, tmux_session=None, variant='normal'):
         super().__init__()
-        self.claude_pid = claude_pid if claude_pid else find_claude_pid()
+        self.tmux_session = tmux_session if tmux_session else find_tmux_session()
         self.variant = variant
         
         # Build pixel data with variant colors
@@ -39,16 +106,16 @@ class YadonPet(QWidget):
         self.bubble = None
         self.prefer_edges = True  # Prefer screen edges where text is less likely
         
-        # Claude Code detection
-        self.claude_code_active = False
+        # tmux session detection
+        self.tmux_active = False
         
         # Hook handler
-        self.hook_handler = HookHandler(self.claude_pid)
+        self.hook_handler = HookHandler(self.tmux_session)
         
         self.init_ui()
         self.setup_animation()
         self.setup_random_actions()
-        self.setup_claude_code_monitor()
+        self.setup_tmux_monitor()
     
     def closeEvent(self, event):
         """Clean up when closing the widget"""
@@ -72,16 +139,31 @@ class YadonPet(QWidget):
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)  # Add space for PID display
         
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setWindowFlags(
+        # Do not activate or take focus when shown
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # Always stack on top at the Qt level
+        if hasattr(Qt.WidgetAttribute, 'WA_AlwaysStackOnTop'):
+            self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Always-on-top, frameless, and avoid focus stealing if available
+        flags = (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.X11BypassWindowManagerHint
+            Qt.WindowType.Window
         )
+        # Some Qt builds expose WindowDoesNotAcceptFocus; use it if available
+        if hasattr(Qt.WindowType, 'WindowDoesNotAcceptFocus'):
+            flags |= Qt.WindowType.WindowDoesNotAcceptFocus
+        self.setWindowFlags(flags)
         
         # Don't set position here - it will be set in main()
         self.show()
         self.raise_()
-        self.activateWindow()
+        # Apply mac top-most non-activating level after show, and keep asserting
+        QTimer.singleShot(0, lambda: _mac_set_top_nonactivating(self))
+        self._top_keepalive = QTimer(self)
+        self._top_keepalive.timeout.connect(lambda: _mac_set_top_nonactivating(self))
+        self._top_keepalive.start(5000)
         
     def setup_animation(self):
         self.timer = QTimer()
@@ -93,10 +175,10 @@ class YadonPet(QWidget):
         self.action_timer.timeout.connect(self.random_action)
         self.action_timer.start(random.randint(RANDOM_ACTION_MIN_INTERVAL, RANDOM_ACTION_MAX_INTERVAL))
     
-    def setup_claude_code_monitor(self):
-        """Monitor Claude Code process and hook files"""
+    def setup_tmux_monitor(self):
+        """Monitor tmux sessions and hook files"""
         self.monitor_timer = QTimer()
-        self.monitor_timer.timeout.connect(self.check_claude_code)
+        self.monitor_timer.timeout.connect(self.check_tmux)
         self.monitor_timer.start(CLAUDE_CHECK_INTERVAL)
         
         # Setup separate hook monitor with faster interval
@@ -105,7 +187,7 @@ class YadonPet(QWidget):
         self.hook_timer.start(HOOK_CHECK_INTERVAL)
         
         # Initial check
-        self.check_claude_code()
+        self.check_tmux()
     
     def animate_face(self):
         self.face_offset += self.animation_direction
@@ -145,15 +227,15 @@ class YadonPet(QWidget):
                     color = QColor(color_hex)
                     painter.fillRect(draw_x, draw_y, pixel_size, pixel_size, color)
         
-        # Draw PID below Yadon with white background
-        pid_text = f"{self.claude_pid if self.claude_pid else 'N/A'}"
+        # Draw tmux session below Yadon with white background
+        session_text = f"{self.tmux_session if self.tmux_session else 'N/A'}"
         font = QFont(PID_FONT_FAMILY, PID_FONT_SIZE)
         font.setBold(True)
         painter.setFont(font)
         
         # Calculate text size
         metrics = painter.fontMetrics()
-        text_width = metrics.horizontalAdvance(pid_text)
+        text_width = metrics.horizontalAdvance(session_text)
         text_height = metrics.height()
         
         # Draw white background for PID
@@ -162,13 +244,18 @@ class YadonPet(QWidget):
         painter.setPen(QColor(0, 0, 0))  # Black border
         painter.drawRect(bg_rect)
         
-        # Draw PID text
+        # Draw session text
         painter.setPen(QColor(0, 0, 0))  # Black text
-        painter.drawText(self.rect().adjusted(0, 68, 0, 0), Qt.AlignmentFlag.AlignHCenter, pid_text)
+        painter.drawText(self.rect().adjusted(0, 68, 0, 0), Qt.AlignmentFlag.AlignHCenter, session_text)
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            # Ensure we don't take focus from the active app
+            try:
+                QApplication.setActiveWindow(None)
+            except Exception:
+                pass
             event.accept()
     
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -180,6 +267,26 @@ class YadonPet(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = None
             event.accept()
+
+    def focusInEvent(self, event):
+        # Immediately relinquish any accidental focus
+        try:
+            self.clearFocus()
+            QApplication.setActiveWindow(None)
+        except Exception:
+            pass
+        event.ignore()
+
+    def event(self, e):
+        # Prevent activation on various focus/activation events
+        if e.type() in (QEvent.Type.WindowActivate, QEvent.Type.ActivationChange, QEvent.Type.FocusIn):
+            try:
+                self.clearFocus()
+                QApplication.setActiveWindow(None)
+            except Exception:
+                pass
+            return True
+        return super().event(e)
     
     def random_action(self):
         # Yadon mostly does nothing or speaks, rarely moves
@@ -244,37 +351,30 @@ class YadonPet(QWidget):
             self.bubble.update_position()
     
     
-    def check_claude_code(self):
-        """Check if Claude Code is running"""
+    def check_tmux(self):
+        """Check if any tmux session is running"""
         try:
-            # Check for Claude Code process (actual claude, not yadon)
-            result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-            lines = result.stdout.strip().split('\n')
-            claude_running = False
-            for line in lines:
-                if 'claude' in line and 'yadon' not in line and 'node' not in line and 'grep' not in line:
-                    claude_running = True
-                    break
-            
-            if claude_running and not self.claude_code_active:
-                # Claude Code just started
-                self.claude_code_active = True
+            tmux_running = count_tmux_sessions() > 0
+
+            if tmux_running and not self.tmux_active:
+                # tmux just started
+                self.tmux_active = True
                 self.show_welcome_message()
                 self.show()
-            elif not claude_running and self.claude_code_active:
-                # Claude Code stopped
-                self.claude_code_active = False
+            elif not tmux_running and self.tmux_active:
+                # tmux stopped
+                self.tmux_active = False
                 self.show_goodbye_message()
-                # Don't hide when Claude Code stops
+                # Don't hide when tool stops
                 # QTimer.singleShot(5000, self.hide)  # Hide after goodbye message
-            
+
             # Hook messages are now checked by separate timer
-                
+
         except Exception as e:
-            print(f"Error checking Claude Code: {e}")
+            print(f"Error checking tmux status: {e}")
     
     def check_hook_messages(self):
-        """Check for Claude Code hook messages in temp files"""
+        """Check for hook messages (tmux) in temp files"""
         result = self.hook_handler.check_hook_messages()
         if result:
             bubble_type, message = result
@@ -291,7 +391,7 @@ class YadonPet(QWidget):
     
     
     def show_welcome_message(self):
-        """Show message when Claude Code starts"""
+        """Show message when tmux sessions appear"""
         message = random.choice(WELCOME_MESSAGES)
         if self.bubble:
             self.bubble.close()
@@ -305,7 +405,7 @@ class YadonPet(QWidget):
         QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
     
     def show_goodbye_message(self):
-        """Show message when Claude Code stops"""
+        """Show message when no tmux sessions remain"""
         message = random.choice(GOODBYE_MESSAGES)
         if self.bubble:
             self.bubble.close()
@@ -365,17 +465,20 @@ def main():
     timer.timeout.connect(lambda: None)  # Dummy timer to process events
     timer.start(500)
     
-    # Create Yadon pets based on number of Claude Code processes
+    # Create Yadon pets based on number of tmux sessions
     pets = []
-    claude_count = count_claude_processes()
+    tmux_count = count_tmux_sessions()
     
-    # Create one Yadon for each Claude Code process (up to 4)
-    num_pets = min(claude_count, MAX_YADON_COUNT) if claude_count > 0 else 1
+    # Create one Yadon for each tmux session (up to 4)
+    num_pets = min(tmux_count, MAX_YADON_COUNT) if tmux_count > 0 else 0
     
-    screen = QApplication.primaryScreen().geometry()
+    # Prefer screen under cursor to improve discoverability
+    screen_obj = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+    screen = screen_obj.geometry()
     
-    # Get Claude process PIDs (actual claude processes only)
-    claude_pids = get_claude_pids()
+    # Get tmux session names
+    sessions = get_tmux_sessions()
+    _log_debug(f"startup: tmux_count={tmux_count}, sessions={sessions}")
     
     # Calculate positions for bottom-right alignment
     # Stack them horizontally from right to left at the bottom
@@ -383,20 +486,22 @@ def main():
     spacing = 10  # Space between Yadons
     
     for i in range(num_pets):
-        # Pass specific Claude PID to each Yadon
-        claude_pid = claude_pids[i] if i < len(claude_pids) else None
+        # Pass specific tmux session to each Yadon
+        session_name = sessions[i] if i < len(sessions) else None
         # Randomly select variant with equal probability
         variant = random.choice(VARIANT_ORDER)
-        pet = YadonPet(claude_pid=claude_pid, variant=variant)
+        pet = YadonPet(tmux_session=session_name, variant=variant)
+        _log_debug(f"created pet for session={session_name} variant={variant}")
         
         # Position in bottom-right, stacking from right to left
         x_pos = screen.width() - margin - (WINDOW_WIDTH + spacing) * (i + 1)
         y_pos = screen.height() - margin - WINDOW_HEIGHT
         pet.move(x_pos, y_pos)
+        _log_debug(f"moved pet to ({x_pos},{y_pos})")
         
         pets.append(pet)
     
-    # Monitor for changes in Claude Code processes
+    # Monitor for changes in tmux sessions
     monitor = ProcessMonitor(pets)
     monitor.start()
     
