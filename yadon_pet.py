@@ -120,12 +120,15 @@ class YadonPet(QWidget):
         self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, soft_notified, force_done, name}
         # Motivation switch (toggle via right-click menu)
         self.yaruki_switch_mode = bool(YARUKI_SWITCH_MODE)
+        # Tmux status text cache ("session window pane")
+        self.tmux_status_text = self.tmux_session or 'N/A'
         
         self.init_ui()
         self.setup_animation()
         self.setup_random_actions()
         self.setup_tmux_monitor()
         self.setup_activity_monitor()
+        self.setup_status_updater()
     
     def closeEvent(self, event):
         """Clean up when closing the widget"""
@@ -204,6 +207,28 @@ class YadonPet(QWidget):
         self.activity_timer = QTimer()
         self.activity_timer.timeout.connect(self.check_cli_activity)
         self.activity_timer.start(ACTIVITY_CHECK_INTERVAL_MS)
+
+    def setup_status_updater(self):
+        """Refresh tmux status text (session window pane) periodically."""
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.update_tmux_status)
+        self.status_timer.start(1000)
+
+    def update_tmux_status(self):
+        try:
+            if not self.tmux_session:
+                self.tmux_status_text = 'N/A'
+                return
+            # Format similar to tmux left-bottom: session, window(tab), pane
+            fmt = '#S #W #P'
+            res = self._tmux_run(['display-message', '-p', '-t', str(self.tmux_session), fmt])
+            if res and res.returncode == 0:
+                txt = res.stdout.strip()
+                if txt:
+                    self.tmux_status_text = txt
+                    self.update()
+        except Exception as e:
+            _log_debug(f"update_tmux_status error: {e}")
     
     def animate_face(self):
         self.face_offset += self.animation_direction
@@ -243,8 +268,8 @@ class YadonPet(QWidget):
                     color = QColor(color_hex)
                     painter.fillRect(draw_x, draw_y, pixel_size, pixel_size, color)
         
-        # Draw tmux session below Yadon with white background
-        session_text = f"{self.tmux_session if self.tmux_session else 'N/A'}"
+        # Draw tmux status (session window pane) below Yadon with white background
+        session_text = f"{self.tmux_status_text if self.tmux_status_text else (self.tmux_session or 'N/A')}"
         font = QFont(PID_FONT_FAMILY, PID_FONT_SIZE)
         font.setBold(True)
         painter.setFont(font)
