@@ -63,7 +63,6 @@ FACE_ANIMATION_INTERVAL_FAST = 250  # milliseconds
 RANDOM_ACTION_MIN_INTERVAL = 45000  # 45 seconds
 RANDOM_ACTION_MAX_INTERVAL = 90000  # 90 seconds
 CLAUDE_CHECK_INTERVAL = 5000  # 5 seconds
-HOOK_CHECK_INTERVAL = 1000  # 1 second
 MOVEMENT_DURATION = 15000  # 15 seconds (slow movement)
 
 # Movement Constants
@@ -118,16 +117,6 @@ IDLE_FORCE_THRESHOLD_SEC = 180      # 3 minutes for strong action
 YARUKI_SWITCH_MODE = False
 # Keys to send to tmux pane when forcing continuation (e.g., rerun last command)
 YARUKI_SEND_KEYS = ['Up', 'Enter']
-
-# Hook file locations (tmux focused)
-HOOK_FILE_PATTERNS = [
-    # Session-specific
-    '/tmp/yadon_hook_{session}.txt',
-    '/tmp/tmux_hook_{session}.txt',
-    # Generic (first Yadon responds)
-    '/tmp/yadon_hook.txt',
-    '/tmp/tmux_hook.txt'
-]
 
 # Debug log location
 DEBUG_LOG = '/tmp/yadon_debug.log'

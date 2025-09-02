@@ -1,12 +1,12 @@
 # ヤドンデスクトップペット 🦦
 
-tmux のセッションを監視し、tmux フックと連携して吹き出しを表示するヤドン（Slowpoke）のデスクトップペットアプリケーションです。tmux にゴリゴリ依存しています。
+tmux のセッションとペインの状態を監視し、吹き出しでお知らせするヤドン（Slowpoke）のデスクトップペットアプリケーションです。tmux にゴリゴリ依存しています。
 
 ## 機能
 
 - **ピクセルアートのヤドン**: 16x16ピクセルアートで顔がアニメーション
 - **tmux連携**: tmux のセッションを監視し、セッション名を表示
-- **フック対応**: tmux のフックに反応して吹き出しを表示
+- **アクティビティ監視**: CLI 出力の停止を検知して青い吹き出しでお知らせ
 - **自動起動**: システム起動時に自動的に起動可能（macOS）
 - **複数ヤドン対応**: 複数の tmux セッションに対して複数のヤドンを生成
 - **スマート吹き出し**: ポケモンスタイルのテキストボックスが画面端で自動調整
@@ -39,49 +39,11 @@ cd yadon-desktop-pet
 python3 yadon_pet.py
 ```
 
-## tmux フック統合
+## 監視の仕組み（tmux）
 
-### tmux でフックを設定
-
-`.tmux.conf` に以下を追加してください（パスは環境に合わせて変更）：
-
-```tmux
-# セッション作成時に通知
-set-hook -g session-created  "run-shell '/path/to/yadon-desktop-pet/hook_notify.sh #{session_name}'"
-
-# セッション終了時に通知
-set-hook -g session-closed   "run-shell '/path/to/yadon-desktop-pet/hook_stop.sh #{session_name}'"
-
-# お好みで、ウィンドウ作成やフォーカス変更にも通知
-# set-hook -g window-created   "run-shell '/path/to/yadon-desktop-pet/hook_notify.sh #{session_name}'"
-# set-hook -g client-session-changed "run-shell '/path/to/yadon-desktop-pet/hook_notify.sh #{session_name}'"
-```
-
-`hook_notify.sh` / `hook_stop.sh` は引数のセッション名を使って `/tmp/tmux_hook_{session}.txt` にメッセージを書き込みます。
-
-### 利用可能なフック
-
-- **Stopフック** (`hook_stop.sh`): セッション終了時に「ひとやすみするやぁん」を表示
-- **Notificationフック** (`hook_notify.sh`): 各種イベント時に「びびっときたやぁん」を表示
-
-### カスタムフックメッセージ
-
-フックファイルに書き込むことでヤドンにカスタムメッセージを送信できます：
-
-```bash
-# {SESSION} を対象 tmux セッション名（ヤドンの下に表示）に置き換え
-echo "メッセージ" > /tmp/yadon_hook_{SESSION}.txt
-
-# または汎用フックファイルを使用（最初のヤドンが応答）
-echo "メッセージ" > /tmp/yadon_hook.txt
-```
-
-tmux 専用のフックファイルも利用できます：
-
-```bash
-echo "メッセージ" > /tmp/tmux_hook_{SESSION}.txt
-echo "メッセージ" > /tmp/tmux_hook.txt
-```
+- セッション数に応じてヤドンを出現（右下に整列）
+- 各セッションのアクティブな「ウィンドウ/ペイン」を 1秒ごとに表示（`#S #I #P`）
+- 対象CLI（例: claude/codex/gemini）の出力が止まったら、10秒でやわらかく通知、3分で「やるきスイッチ」（ON時）
 
 ## 自動起動管理（macOS）
 
@@ -108,4 +70,4 @@ rm ~/Library/LaunchAgents/com.yadon.pet.plist
 - **メインログ**: `/tmp/yadon-pet.log`
 - **エラーログ**: `/tmp/yadon-pet-error.log`
 - **デバッグログ**: `/tmp/yadon_debug.log`
-- **フックデバッグ**: `/tmp/hook_debug.log`
+ 
