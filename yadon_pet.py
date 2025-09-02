@@ -219,15 +219,34 @@ class YadonPet(QWidget):
             if not self.tmux_session:
                 self.tmux_status_text = 'N/A'
                 return
-            # Format similar to tmux left-bottom: session, window(tab), pane
-            # Show session, window index (numeric), pane index
-            fmt = '#S #I #P'
-            res = self._tmux_run(['display-message', '-p', '-t', str(self.tmux_session), fmt])
+            # Determine the active window + pane within this session
+            fmt = '#{?window_active,1,0} #{?pane_active,1,0} #{session_name} #{window_index} #{pane_index}'
+            res = self._tmux_run(['list-panes', '-t', str(self.tmux_session), '-F', fmt])
+            chosen = None
             if res and res.returncode == 0:
-                txt = res.stdout.strip()
-                if txt:
-                    self.tmux_status_text = txt
-                    self.update()
+                for line in res.stdout.splitlines():
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        win_act, pane_act, sess, win_idx, pane_idx = parts[:5]
+                        if win_act == '1' and pane_act == '1':
+                            chosen = f"{sess} {win_idx} {pane_idx}"
+                            break
+                if not chosen:
+                    # Fallback to first pane line
+                    for line in res.stdout.splitlines():
+                        parts = line.strip().split()
+                        if len(parts) >= 5:
+                            _, _, sess, win_idx, pane_idx = parts[:5]
+                            chosen = f"{sess} {win_idx} {pane_idx}"
+                            break
+            # Final fallback via display-message
+            if not chosen:
+                res2 = self._tmux_run(['display-message', '-p', '-t', str(self.tmux_session), '#S #I #P'])
+                if res2 and res2.returncode == 0:
+                    chosen = res2.stdout.strip()
+            if chosen and self.tmux_status_text != chosen:
+                self.tmux_status_text = chosen
+                self.update()
         except Exception as e:
             _log_debug(f"update_tmux_status error: {e}")
     
