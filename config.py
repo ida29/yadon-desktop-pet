@@ -83,6 +83,8 @@ WINDOW_HEIGHT = 16 * PIXEL_SIZE + 20  # Extra space for PID display
 
 # Animation Constants
 FACE_ANIMATION_INTERVAL = 500  # milliseconds
+# Faster face animation when やる気スイッチ ON
+FACE_ANIMATION_INTERVAL_FAST = 250  # milliseconds
 RANDOM_ACTION_MIN_INTERVAL = 45000  # 45 seconds
 RANDOM_ACTION_MAX_INTERVAL = 90000  # 90 seconds
 CLAUDE_CHECK_INTERVAL = 5000  # 5 seconds

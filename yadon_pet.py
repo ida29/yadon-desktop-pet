@@ -8,7 +8,7 @@ import fcntl
 import sys as _sys
 import ctypes
 import shutil
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont, QCursor
 
@@ -23,7 +23,8 @@ from config import (
     TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS, OUTPUT_IDLE_THRESHOLD_SEC,
     IDLE_HINT_MESSAGES,
     IDLE_SOFT_THRESHOLD_SEC, IDLE_FORCE_THRESHOLD_SEC,
-    YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS
+    YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
+    FACE_ANIMATION_INTERVAL_FAST
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -118,6 +119,8 @@ class YadonPet(QWidget):
         self.hook_handler = HookHandler(self.tmux_session)
         # Activity monitoring state per tmux pane
         self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, soft_notified, force_done, name}
+        # Motivation switch (toggle via right-click menu)
+        self.yaruki_switch_mode = bool(YARUKI_SWITCH_MODE)
         
         self.init_ui()
         self.setup_animation()
@@ -176,7 +179,14 @@ class YadonPet(QWidget):
     def setup_animation(self):
         self.timer = QTimer()
         self.timer.timeout.connect(self.animate_face)
-        self.timer.start(FACE_ANIMATION_INTERVAL)
+        self.update_animation_speed()
+
+    def update_animation_speed(self):
+        interval = FACE_ANIMATION_INTERVAL_FAST if self.yaruki_switch_mode else FACE_ANIMATION_INTERVAL
+        if hasattr(self, 'timer') and self.timer is not None:
+            if self.timer.isActive():
+                self.timer.stop()
+            self.timer.start(interval)
     
     def setup_random_actions(self):
         self.action_timer = QTimer()
@@ -368,7 +378,7 @@ class YadonPet(QWidget):
                         st['soft_notified'] = True
                     # Second stage: force if enabled
                     if idle >= IDLE_FORCE_THRESHOLD_SEC and not st.get('force_done'):
-                        if YARUKI_SWITCH_MODE:
+                        if self.yaruki_switch_mode:
                             self._yaruki_force(pane_id)
                             # Optional feedback bubble
                             friendly = self._friendly_cli_name(name)
@@ -414,6 +424,10 @@ class YadonPet(QWidget):
             except Exception:
                 pass
             event.accept()
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Show context menu to toggle やるきスイッチ
+            self.show_context_menu(event.globalPosition().toPoint())
+            event.accept()
     
     def mouseMoveEvent(self, event: QMouseEvent):
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_position:
@@ -444,6 +458,28 @@ class YadonPet(QWidget):
                 pass
             return True
         return super().event(e)
+
+    def show_context_menu(self, global_pos):
+        menu = QMenu()
+        # Avoid stealing focus
+        menu.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        act_toggle = menu.addAction('やるきスイッチ: ON' if self.yaruki_switch_mode else 'やるきスイッチ: OFF')
+        def toggle():
+            self.yaruki_switch_mode = not self.yaruki_switch_mode
+            # Update animation speed when toggled
+            self.update_animation_speed()
+            # Small confirmation bubble
+            name = 'やるきスイッチ: ON' if self.yaruki_switch_mode else 'やるきスイッチ: OFF'
+            try:
+                if self.bubble:
+                    self.bubble.close()
+                    self.bubble = None
+                self.bubble = SpeechBubble(name, self, bubble_type='hook')
+                self.bubble.show()
+            except Exception:
+                pass
+        act_toggle.triggered.connect(toggle)
+        menu.exec(global_pos)
     
     def random_action(self):
         # Yadon mostly does nothing or speaks, rarely moves
