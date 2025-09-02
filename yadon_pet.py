@@ -318,6 +318,15 @@ class YadonPet(QWidget):
             return ''
         return res.stdout[-2000:]  # limit
 
+    def _friendly_cli_name(self, name: str) -> str:
+        try:
+            s = (name or '').lower()
+            if 'codex-cli' in s or 'codex' in s:
+                return 'コダック'
+            return name
+        except Exception:
+            return name
+
     def check_cli_activity(self):
         try:
             import time
@@ -340,7 +349,8 @@ class YadonPet(QWidget):
                     idle = now - st['last_change_ts']
                     if idle >= OUTPUT_IDLE_THRESHOLD_SEC and not st.get('notified'):
                         # Show blue bubble
-                        msg = f"{name} の　しゅつりょく　とまってる　やぁん…"
+                        friendly = self._friendly_cli_name(name)
+                        msg = f"{friendly} の　しゅつりょく　とまってる　やぁん…"
                         if self.bubble:
                             self.bubble.close()
                             self.bubble = None
