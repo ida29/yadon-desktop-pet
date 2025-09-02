@@ -4,6 +4,7 @@ import random
 import signal
 import subprocess
 import os
+import fcntl
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont
@@ -325,6 +326,35 @@ def signal_handler(sig, frame):
 
 
 def main():
+    # Check for existing instance
+    lockfile_path = '/tmp/yadon_pet.lock'
+    lockfile = None
+    
+    try:
+        # Try to create/open lock file
+        lockfile = open(lockfile_path, 'w')
+        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lockfile.write(str(os.getpid()))
+        lockfile.flush()
+    except (IOError, OSError):
+        # Another instance is running, kill it first
+        try:
+            # Kill all existing yadon_pet.py processes
+            subprocess.run(['pkill', '-f', 'yadon_pet.py'], check=False)
+            # Wait a bit for processes to die
+            import time
+            time.sleep(0.5)
+            # Try to acquire lock again
+            if lockfile:
+                lockfile.close()
+            lockfile = open(lockfile_path, 'w')
+            fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lockfile.write(str(os.getpid()))
+            lockfile.flush()
+        except:
+            print("Failed to start Yadon - another instance may be running")
+            sys.exit(1)
+    
     # Set up signal handler for clean exit
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -374,6 +404,15 @@ def main():
         sys.exit(app.exec())
     except KeyboardInterrupt:
         sys.exit(0)
+    finally:
+        # Clean up lock file
+        if lockfile:
+            try:
+                fcntl.flock(lockfile, fcntl.LOCK_UN)
+                lockfile.close()
+                os.unlink(lockfile_path)
+            except:
+                pass
 
 if __name__ == '__main__':
     main()
