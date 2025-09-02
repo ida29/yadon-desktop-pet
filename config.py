@@ -102,7 +102,8 @@ TMUX_CLI_NAMES = [
 FRIENDLY_TOOL_NAMES = {
     'codex': 'コダック',
     'codex-cli': 'コダック'
-    # 例: 'claude': 'クロード', 'gemini': 'ジェミニ' など、必要に応じて追加
+    'claude': 'クロバット',
+    'gemini': 'シェイミ'
 }
 
 # Activity monitoring
