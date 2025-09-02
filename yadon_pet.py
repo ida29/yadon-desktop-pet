@@ -20,7 +20,10 @@ from config import (
     TINY_MOVEMENT_RANGE, SMALL_MOVEMENT_RANGE, TINY_MOVEMENT_PROBABILITY,
     BUBBLE_DISPLAY_TIME, PID_FONT_FAMILY, PID_FONT_SIZE,
     VARIANT_ORDER, MAX_YADON_COUNT,
-    TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS, OUTPUT_IDLE_THRESHOLD_SEC
+    TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS, OUTPUT_IDLE_THRESHOLD_SEC,
+    IDLE_HINT_MESSAGES,
+    IDLE_SOFT_THRESHOLD_SEC, IDLE_FORCE_THRESHOLD_SEC,
+    YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -114,7 +117,7 @@ class YadonPet(QWidget):
         # Hook handler
         self.hook_handler = HookHandler(self.tmux_session)
         # Activity monitoring state per tmux pane
-        self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, notified, name}
+        self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, soft_notified, force_done, name}
         
         self.init_ui()
         self.setup_animation()
@@ -338,25 +341,44 @@ class YadonPet(QWidget):
                 name = pane['cmd']
                 content = self._capture_pane_tail(pane_id)
                 h = hash(content)
-                st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'notified': False, 'name': name})
+                st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'soft_notified': False, 'force_done': False, 'name': name})
                 # Detect change
                 if st['last_hash'] != h:
                     st['last_hash'] = h
                     st['last_change_ts'] = now
-                    st['notified'] = False
+                    st['soft_notified'] = False
+                    st['force_done'] = False
                     st['name'] = name
                 else:
                     idle = now - st['last_change_ts']
-                    if idle >= OUTPUT_IDLE_THRESHOLD_SEC and not st.get('notified'):
-                        # Show blue bubble
+                    # First stage: soft hint
+                    if idle >= IDLE_SOFT_THRESHOLD_SEC and not st.get('soft_notified'):
+                        # Show blue bubble (gentle)
                         friendly = self._friendly_cli_name(name)
-                        msg = f"{friendly} の　しゅつりょく　とまってる　やぁん…"
+                        try:
+                            tmpl = random.choice(IDLE_HINT_MESSAGES)
+                            msg = tmpl.format(name=friendly)
+                        except Exception:
+                            msg = f"{friendly}……　いまは　しずか　みたい　やぁん……"
                         if self.bubble:
                             self.bubble.close()
                             self.bubble = None
                         self.bubble = SpeechBubble(msg, self, bubble_type='hook')
                         self.bubble.show()
-                        st['notified'] = True
+                        st['soft_notified'] = True
+                    # Second stage: force if enabled
+                    if idle >= IDLE_FORCE_THRESHOLD_SEC and not st.get('force_done'):
+                        if YARUKI_SWITCH_MODE:
+                            self._yaruki_force(pane_id)
+                            # Optional feedback bubble
+                            friendly = self._friendly_cli_name(name)
+                            hard_msg = f"{friendly}……　やるきスイッチ　いれた　やぁん！"
+                            if self.bubble:
+                                self.bubble.close()
+                                self.bubble = None
+                            self.bubble = SpeechBubble(hard_msg, self, bubble_type='hook')
+                            self.bubble.show()
+                        st['force_done'] = True
                 self.pane_state[pane_id] = st
             # Cleanup state for panes that disappeared
             existing_ids = set(p['pane_id'] for p in panes)
@@ -365,6 +387,23 @@ class YadonPet(QWidget):
                     del self.pane_state[key]
         except Exception as e:
             _log_debug(f"check_cli_activity error: {e}")
+
+    def _tmux_send_keys(self, pane_id, keys):
+        try:
+            if not keys:
+                return
+            # send-keys can take multiple keys in one call
+            self._tmux_run(['send-keys', '-t', pane_id] + list(keys))
+        except Exception as e:
+            _log_debug(f"send_keys error: {e}")
+
+    def _yaruki_force(self, pane_id):
+        try:
+            keys = YARUKI_SEND_KEYS or []
+            self._tmux_send_keys(pane_id, keys)
+            _log_debug(f"yaruki: sent keys {keys} to {pane_id}")
+        except Exception as e:
+            _log_debug(f"yaruki_force error: {e}")
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:

@@ -61,6 +61,15 @@ GOODBYE_MESSAGES = [
     "また　あそぼう　やぁん！　まってる　やぁん！"
 ]
 
+# Soft idle hint messages for CLI output pause (Pokemon vibe)
+IDLE_HINT_MESSAGES = [
+    "{name}……　いまは　しずか　みたい　やぁん……",
+    "{name}……　ちょっと　ひとやすみ　かも　やぁん……",
+    "{name}……　そっと　みまもる　やぁん……",
+    "{name}……　きゅうけい　してる　のかな　やぁん……",
+    "{name}……　つぎの　うごき　まってる　やぁん……"
+]
+
 # Hook responses
 HOOK_RESPONSES = {
     'stop:': "ひとやすみ　する　やぁん！",
@@ -114,7 +123,16 @@ TMUX_CLI_NAMES = [
 
 # Activity monitoring
 ACTIVITY_CHECK_INTERVAL_MS = 10000  # 10 seconds
-OUTPUT_IDLE_THRESHOLD_SEC = 60      # 60 seconds of no output -> notify
+OUTPUT_IDLE_THRESHOLD_SEC = 60      # 60 seconds of no output -> notify (legacy)
+
+# Two-stage idle thresholds
+IDLE_SOFT_THRESHOLD_SEC = 10        # First gentle nudge
+IDLE_FORCE_THRESHOLD_SEC = 180      # 3 minutes for strong action
+
+# Motivation Switch mode: auto input when force threshold reached
+YARUKI_SWITCH_MODE = False
+# Keys to send to tmux pane when forcing continuation (e.g., rerun last command)
+YARUKI_SEND_KEYS = ['Up', 'Enter']
 
 # Hook file locations (tmux focused)
 HOOK_FILE_PATTERNS = [
