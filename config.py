@@ -104,6 +104,18 @@ VARIANT_ORDER = ['normal', 'shiny', 'galarian', 'galarian_shiny']
 # Maximum number of Yadon instances
 MAX_YADON_COUNT = 4
 
+# CLI names to monitor for output activity within tmux panes
+TMUX_CLI_NAMES = [
+    'claude',
+    'codex',
+    'codex-cli',
+    'gemini'
+]
+
+# Activity monitoring
+ACTIVITY_CHECK_INTERVAL_MS = 10000  # 10 seconds
+OUTPUT_IDLE_THRESHOLD_SEC = 60      # 60 seconds of no output -> notify
+
 # Hook file locations (tmux focused)
 HOOK_FILE_PATTERNS = [
     # Session-specific

@@ -7,6 +7,7 @@ import os
 import fcntl
 import sys as _sys
 import ctypes
+import shutil
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont, QCursor
@@ -18,7 +19,8 @@ from config import (
     CLAUDE_CHECK_INTERVAL, HOOK_CHECK_INTERVAL, MOVEMENT_DURATION,
     TINY_MOVEMENT_RANGE, SMALL_MOVEMENT_RANGE, TINY_MOVEMENT_PROBABILITY,
     BUBBLE_DISPLAY_TIME, PID_FONT_FAMILY, PID_FONT_SIZE,
-    VARIANT_ORDER, MAX_YADON_COUNT
+    VARIANT_ORDER, MAX_YADON_COUNT,
+    TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS, OUTPUT_IDLE_THRESHOLD_SEC
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -111,11 +113,14 @@ class YadonPet(QWidget):
         
         # Hook handler
         self.hook_handler = HookHandler(self.tmux_session)
+        # Activity monitoring state per tmux pane
+        self.pane_state = {}  # pane_id -> {last_hash, last_change_ts, notified, name}
         
         self.init_ui()
         self.setup_animation()
         self.setup_random_actions()
         self.setup_tmux_monitor()
+        self.setup_activity_monitor()
     
     def closeEvent(self, event):
         """Clean up when closing the widget"""
@@ -188,6 +193,12 @@ class YadonPet(QWidget):
         
         # Initial check
         self.check_tmux()
+
+    def setup_activity_monitor(self):
+        """Monitor tmux panes for CLI output activity and notify on idle."""
+        self.activity_timer = QTimer()
+        self.activity_timer.timeout.connect(self.check_cli_activity)
+        self.activity_timer.start(ACTIVITY_CHECK_INTERVAL_MS)
     
     def animate_face(self):
         self.face_offset += self.animation_direction
@@ -247,6 +258,103 @@ class YadonPet(QWidget):
         # Draw session text
         painter.setPen(QColor(0, 0, 0))  # Black text
         painter.drawText(self.rect().adjusted(0, 68, 0, 0), Qt.AlignmentFlag.AlignHCenter, session_text)
+
+    def _tmux_run(self, args):
+        try:
+            # Resolve tmux path quickly
+            tmux_path = shutil.which('tmux') or '/opt/homebrew/bin/tmux'
+            result = subprocess.run([tmux_path] + args, capture_output=True, text=True)
+            return result
+        except Exception as e:
+            _log_debug(f"tmux run error: {e}")
+            return None
+
+    def _list_relevant_panes(self):
+        """Return list of panes in this session that run target CLIs."""
+        panes = []
+        if not self.tmux_session:
+            return panes
+        try:
+            # Get pane id, pid, current command with safe delimiter
+            res = self._tmux_run(['list-panes', '-t', str(self.tmux_session), '-F', '#{pane_id}::#{pane_pid}::#{pane_current_command}'])
+            if not res or res.returncode != 0:
+                return panes
+            lines = [l for l in res.stdout.strip().split('\n') if l.strip()]
+            for line in lines:
+                parts = line.split('::')
+                if len(parts) != 3:
+                    continue
+                pane_id, pane_pid, cmd = parts
+                cmd_l = cmd.lower().strip()
+                relevant = any(name in cmd_l for name in TMUX_CLI_NAMES)
+                if not relevant:
+                    # Try to detect child processes of the pane pid containing target names
+                    try:
+                        ps = subprocess.run(['ps', 'ax', '-o', 'pid=,ppid=,command='], capture_output=True, text=True)
+                        if ps.returncode == 0:
+                            for pl in ps.stdout.splitlines():
+                                try:
+                                    ppid = int(pl.split(None, 2)[1])
+                                    if str(ppid) == pane_pid:
+                                        cmdline = pl.split(None, 2)[2].lower()
+                                        if any(name in cmdline for name in TMUX_CLI_NAMES):
+                                            relevant = True
+                                            cmd_l = cmdline
+                                            break
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
+                if relevant:
+                    panes.append({'pane_id': pane_id, 'pane_pid': pane_pid, 'cmd': cmd_l})
+            return panes
+        except Exception as e:
+            _log_debug(f"list panes error: {e}")
+            return []
+
+    def _capture_pane_tail(self, pane_id, lines=200):
+        res = self._tmux_run(['capture-pane', '-p', '-J', '-t', pane_id, '-S', f'-{lines}'])
+        if not res or res.returncode != 0:
+            return ''
+        return res.stdout[-2000:]  # limit
+
+    def check_cli_activity(self):
+        try:
+            import time
+            now = time.time()
+            panes = self._list_relevant_panes()
+            for pane in panes:
+                pid = pane['pane_pid']
+                pane_id = pane['pane_id']
+                name = pane['cmd']
+                content = self._capture_pane_tail(pane_id)
+                h = hash(content)
+                st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'notified': False, 'name': name})
+                # Detect change
+                if st['last_hash'] != h:
+                    st['last_hash'] = h
+                    st['last_change_ts'] = now
+                    st['notified'] = False
+                    st['name'] = name
+                else:
+                    idle = now - st['last_change_ts']
+                    if idle >= OUTPUT_IDLE_THRESHOLD_SEC and not st.get('notified'):
+                        # Show blue bubble
+                        msg = f"{name} の　しゅつりょく　とまってる　やぁん…"
+                        if self.bubble:
+                            self.bubble.close()
+                            self.bubble = None
+                        self.bubble = SpeechBubble(msg, self, bubble_type='hook')
+                        self.bubble.show()
+                        st['notified'] = True
+                self.pane_state[pane_id] = st
+            # Cleanup state for panes that disappeared
+            existing_ids = set(p['pane_id'] for p in panes)
+            for key in list(self.pane_state.keys()):
+                if key not in existing_ids:
+                    del self.pane_state[key]
+        except Exception as e:
+            _log_debug(f"check_cli_activity error: {e}")
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
