@@ -25,7 +25,8 @@ from config import (
     IDLE_SOFT_THRESHOLD_SEC, IDLE_FORCE_THRESHOLD_SEC,
     YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
     FACE_ANIMATION_INTERVAL_FAST,
-    FRIENDLY_TOOL_NAMES
+    FRIENDLY_TOOL_NAMES,
+    YARUKI_QUESTIONS
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -463,11 +464,37 @@ class YadonPet(QWidget):
 
     def _yaruki_force(self, pane_id):
         try:
-            keys = YARUKI_SEND_KEYS or []
-            self._tmux_send_keys(pane_id, keys)
-            _log_debug(f"yaruki: sent keys {keys} to {pane_id}")
+            # Inspect pane tail for yes/no prompt
+            tail = self._capture_pane_tail(pane_id, lines=80)
+            if self._detect_yes_no_prompt(tail):
+                # Answer 'y' then Enter
+                self._tmux_send_keys(pane_id, ['y', 'Enter'])
+                _log_debug(f"yaruki: answered 'y' to yes/no on {pane_id}")
+                return
+            # Otherwise recall previous input and append a random question
+            question = random.choice(YARUKI_QUESTIONS)
+            # Bring previous entry (Up), move to end, append text, Enter
+            self._tmux_send_keys(pane_id, ['Up', 'End'])
+            # Send literal text
+            self._tmux_run(['send-keys', '-t', pane_id, '-l', f' {question}'])
+            self._tmux_send_keys(pane_id, ['Enter'])
+            _log_debug(f"yaruki: resent prev with question to {pane_id}")
         except Exception as e:
             _log_debug(f"yaruki_force error: {e}")
+
+    def _detect_yes_no_prompt(self, content: str) -> bool:
+        try:
+            if not content:
+                return False
+            s = content.lower()
+            indicators = [
+                'y/n', '[y/n]', '(y/n)', 'yes/no',
+                'proceed?', 'continue?','confirm (y/n)', 'confirm?'
+            ]
+            jp = ['続けますか', 'よろしいですか', '続行しますか']
+            return any(tok in s for tok in indicators) or any(tok in content for tok in jp)
+        except Exception:
+            return False
     
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
