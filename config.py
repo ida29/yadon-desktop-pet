@@ -111,7 +111,7 @@ OUTPUT_IDLE_THRESHOLD_SEC = 60      # 60 seconds of no output -> notify (legacy)
 
 # Two-stage idle thresholds
 IDLE_SOFT_THRESHOLD_SEC = 10        # First gentle nudge
-IDLE_FORCE_THRESHOLD_SEC = 180      # 3 minutes for strong action
+IDLE_FORCE_THRESHOLD_SEC = 30       # 30 seconds for strong action
 
 # Motivation Switch mode: auto input when force threshold reached
 YARUKI_SWITCH_MODE = False
