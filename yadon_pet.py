@@ -26,7 +26,6 @@ from config import (
     YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
     FACE_ANIMATION_INTERVAL_FAST,
     FRIENDLY_TOOL_NAMES,
-    YARUKI_QUESTIONS
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -480,14 +479,9 @@ class YadonPet(QWidget):
                 self._tmux_send_keys(pane_id, ['y', 'Enter'])
                 _log_debug(f"yaruki: answered 'y' to yes/no on {pane_id}")
                 return
-            # Otherwise recall previous input and append a random question
-            question = random.choice(YARUKI_QUESTIONS)
-            # Bring previous entry (Up), move to end, append text, Enter
-            self._tmux_send_keys(pane_id, ['Up', 'End'])
-            # Send literal text
-            self._tmux_run(['send-keys', '-t', pane_id, '-l', f' {question}'])
-            self._tmux_send_keys(pane_id, ['Enter'])
-            _log_debug(f"yaruki: resent prev with question to {pane_id}")
+            # Otherwise just resend previous command
+            self._tmux_send_keys(pane_id, ['Up', 'Enter'])
+            _log_debug(f"yaruki: resent prev command to {pane_id}")
         except Exception as e:
             _log_debug(f"yaruki_force error: {e}")
 
