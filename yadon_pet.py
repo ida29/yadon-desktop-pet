@@ -395,15 +395,24 @@ class YadonPet(QWidget):
                 name = pane['cmd']
                 content = self._capture_pane_tail(pane_id)
                 h = hash(content)
-                st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'soft_notified': False, 'force_done': False, 'name': name})
+                st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'soft_notified': False, 'force_done': False, 'allow_done': False, 'name': name})
                 # Detect change
                 if st['last_hash'] != h:
                     st['last_hash'] = h
                     st['last_change_ts'] = now
                     st['soft_notified'] = False
                     st['force_done'] = False
+                    st['allow_done'] = False
                     st['name'] = name
                 else:
+                    # Immediate handling: Codex CLI "Allow command?" prompt bypass
+                    if self.yaruki_switch_mode and not st.get('allow_done'):
+                        if self._detect_codex_allow_prompt(content):
+                            # Prefer typing 'allow' then Enter to be explicit
+                            self._tmux_run(['send-keys', '-t', pane_id, '-l', 'allow'])
+                            self._tmux_send_keys(pane_id, ['Enter'])
+                            st['allow_done'] = True
+                            _log_debug(f"yaruki: auto-allowed command on {pane_id}")
                     idle = now - st['last_change_ts']
                     # First stage: soft hint
                     if idle >= IDLE_SOFT_THRESHOLD_SEC and not st.get('soft_notified'):
@@ -493,6 +502,22 @@ class YadonPet(QWidget):
             ]
             jp = ['続けますか', 'よろしいですか', '続行しますか']
             return any(tok in s for tok in indicators) or any(tok in content for tok in jp)
+        except Exception:
+            return False
+
+    def _detect_codex_allow_prompt(self, content: str) -> bool:
+        try:
+            if not content:
+                return False
+            s = content.lower()
+            # Common Codex CLI permission prompts
+            patterns = [
+                'allow command',
+                'allow running command',
+                'allow to run',
+                'permission to run',
+            ]
+            return any(p in s for p in patterns)
         except Exception:
             return False
     
