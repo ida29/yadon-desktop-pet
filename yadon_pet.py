@@ -11,6 +11,7 @@ import shutil
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont, QCursor
+from pokemon_menu import PokemonMenu
 
 from config import (
     COLOR_SCHEMES, RANDOM_MESSAGES, WELCOME_MESSAGES, GOODBYE_MESSAGES,
@@ -98,6 +99,9 @@ def _mac_set_top_nonactivating(widget: QWidget):
         _log_debug(f"macOS elevate failed: {e}")
 
 class YadonPet(QWidget):
+    # Class variable to track active menu across all instances
+    _active_menu = None
+    
     def __init__(self, tmux_session=None, variant='normal'):
         super().__init__()
         self.tmux_session = tmux_session if tmux_session else find_tmux_session()
@@ -112,6 +116,9 @@ class YadonPet(QWidget):
         
         self.bubble = None
         self.prefer_edges = True  # Prefer screen edges where text is less likely
+        
+        # Pokemon menu instance
+        self.pokemon_menu = None
         
         # tmux session detection
         self.tmux_active = False
@@ -136,6 +143,10 @@ class YadonPet(QWidget):
         if self.bubble:
             self.bubble.close()
             self.bubble = None
+        # Clean up menu
+        if self.pokemon_menu:
+            self.pokemon_menu.close()
+            self.pokemon_menu = None
         # Stop all timers
         if hasattr(self, 'timer'):
             self.timer.stop()
@@ -560,26 +571,74 @@ class YadonPet(QWidget):
         return super().event(e)
 
     def show_context_menu(self, global_pos):
-        menu = QMenu()
-        # Avoid stealing focus
-        menu.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        act_toggle = menu.addAction('やるきスイッチ: ON' if self.yaruki_switch_mode else 'やるきスイッチ: OFF')
-        def toggle():
-            self.yaruki_switch_mode = not self.yaruki_switch_mode
-            # Update animation speed when toggled
-            self.update_animation_speed()
-            # Small confirmation bubble
-            name = 'やるきスイッチ: ON' if self.yaruki_switch_mode else 'やるきスイッチ: OFF'
-            try:
-                if self.bubble:
-                    self.bubble.close()
-                    self.bubble = None
-                self.bubble = SpeechBubble(name, self, bubble_type='hook')
-                self.bubble.show()
-            except Exception:
-                pass
-        act_toggle.triggered.connect(toggle)
-        menu.exec(global_pos)
+        # Close any existing menu across all instances
+        if YadonPet._active_menu:
+            YadonPet._active_menu.close()
+            YadonPet._active_menu = None
+        
+        # Close this instance's menu reference if any
+        if self.pokemon_menu:
+            self.pokemon_menu.close()
+            self.pokemon_menu = None
+        
+        # Create new Pokemon-style menu
+        self.pokemon_menu = PokemonMenu(self)
+        YadonPet._active_menu = self.pokemon_menu
+        
+        # Show the opposite state (what it will become when clicked)
+        if self.yaruki_switch_mode:
+            # Currently ON, show OFF option
+            toggle_text = 'やるきスイッチ　ＯＦＦ'
+        else:
+            # Currently OFF, show ON option
+            toggle_text = 'やるきスイッチ　ＯＮ'
+        
+        self.pokemon_menu.add_item(toggle_text, 'toggle_yaruki')
+        self.pokemon_menu.add_item('とじる', 'close')
+        
+        # Connect action handler
+        def handle_action(action_id):
+            if action_id == 'toggle_yaruki':
+                # Set to the state shown in the menu
+                if not self.yaruki_switch_mode:
+                    # Was OFF, menu showed ON, so turn ON
+                    self.yaruki_switch_mode = True
+                    message = 'やるきスイッチ　ＯＮ！\nはやさが　あがった！'
+                    bubble_type = 'claude'
+                else:
+                    # Was ON, menu showed OFF, so turn OFF
+                    self.yaruki_switch_mode = False
+                    message = 'やるきスイッチ　ＯＦＦ\nゆったりモードに　もどった'
+                    bubble_type = 'normal'
+                
+                # Update animation speed
+                self.update_animation_speed()
+                
+                try:
+                    if self.bubble:
+                        self.bubble.close()
+                        self.bubble = None
+                    self.bubble = SpeechBubble(message, self, bubble_type=bubble_type)
+                    self.bubble.show()
+                    # Show for longer to make it clearer
+                    QTimer.singleShot(3000, lambda: self.bubble.close() if self.bubble else None)
+                except Exception:
+                    pass
+        
+        self.pokemon_menu.action_triggered.connect(handle_action)
+        
+        # Position menu relative to Yadon
+        menu_x = self.x() + self.width() + 5  # Right of Yadon
+        menu_y = self.y()
+        
+        # Ensure menu stays on screen
+        screen = QApplication.primaryScreen().geometry()
+        if menu_x + 200 > screen.width():  # Approximate menu width
+            menu_x = self.x() - 200 - 5  # Left of Yadon
+        if menu_y + 100 > screen.height():  # Approximate menu height
+            menu_y = screen.height() - 100
+        
+        self.pokemon_menu.show_at(QPoint(menu_x, menu_y))
     
     def random_action(self):
         # Yadon mostly does nothing or speaks, rarely moves
@@ -638,10 +697,24 @@ class YadonPet(QWidget):
         QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
     
     def moveEvent(self, event):
-        """Update bubble position when Yadon moves"""
+        """Update bubble and menu position when Yadon moves"""
         super().moveEvent(event)
         if self.bubble and self.bubble.isVisible():
             self.bubble.update_position()
+        
+        # Update menu position if visible
+        if self.pokemon_menu and self.pokemon_menu.isVisible():
+            menu_x = self.x() + self.width() + 5  # Right of Yadon
+            menu_y = self.y()
+            
+            # Ensure menu stays on screen
+            screen = QApplication.primaryScreen().geometry()
+            if menu_x + 200 > screen.width():  # Approximate menu width
+                menu_x = self.x() - 200 - 5  # Left of Yadon
+            if menu_y + 100 > screen.height():  # Approximate menu height
+                menu_y = screen.height() - 100
+            
+            self.pokemon_menu.move(menu_x, menu_y)
     
     
     def check_tmux(self):
