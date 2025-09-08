@@ -118,19 +118,12 @@ YARUKI_SWITCH_MODE = False
 # Keys to send to tmux pane when forcing continuation (e.g., rerun last command)
 YARUKI_SEND_KEYS = ['Up', 'Enter']
 
-# Random universal knowledge questions appended in やる気スイッチ mode
-# YARUKI_QUESTIONS = [
-#     "オススメの韓国料理は？",
-#     "日本の初代総理大臣は？",
-#     "ローマ帝国はなぜ滅亡した？",
-#     "アインシュタインの相対性理論とは？",
-#     "フランス革命はいつ起きた？",
-#     "光合成の仕組みは？",
-#     "地球の内部構造は？",
-#     "ピタゴラスの定理を説明して？",
-#     "源氏物語の作者は？",
-#     "ニュートンの万有引力とは？"
-# ]
+# やるきスイッチ related messages
+YARUKI_SWITCH_ON_MESSAGE = 'やるきスイッチ　ＯＮ'
+YARUKI_SWITCH_OFF_MESSAGE = 'やるきスイッチ　ＯＦＦ'
+YARUKI_FORCE_MESSAGE = "{name}……　やるきスイッチ　いれた　やぁん！"
+YARUKI_MENU_ON_TEXT = 'やるきスイッチ　ＯＮにする'
+YARUKI_MENU_OFF_TEXT = 'やるきスイッチ　ＯＦＦにする'
 
 # Debug log location
 DEBUG_LOG = '/tmp/yadon_debug.log'

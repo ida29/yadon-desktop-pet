@@ -27,6 +27,8 @@ from config import (
     YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
     FACE_ANIMATION_INTERVAL_FAST,
     FRIENDLY_TOOL_NAMES,
+    YARUKI_SWITCH_ON_MESSAGE, YARUKI_SWITCH_OFF_MESSAGE, YARUKI_FORCE_MESSAGE,
+    YARUKI_MENU_ON_TEXT, YARUKI_MENU_OFF_TEXT,
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
@@ -451,7 +453,7 @@ class YadonPet(QWidget):
                             self._yaruki_force(pane_id)
                             # Optional feedback bubble
                             friendly = self._friendly_cli_name(name)
-                            hard_msg = f"{friendly}……　やるきスイッチ　いれた　やぁん！"
+                            hard_msg = YARUKI_FORCE_MESSAGE.format(name=friendly)
                             if self.bubble:
                                 self.bubble.close()
                                 self.bubble = None
@@ -477,7 +479,9 @@ class YadonPet(QWidget):
             if not keys:
                 return
             # send-keys can take multiple keys in one call
-            self._tmux_run(['send-keys', '-t', pane_id] + list(keys))
+            result = self._tmux_run(['send-keys', '-t', pane_id] + list(keys))
+            if result and result.returncode != 0:
+                _log_debug(f"send_keys failed: {result.stderr}")
         except Exception as e:
             _log_debug(f"send_keys error: {e}")
 
@@ -486,8 +490,10 @@ class YadonPet(QWidget):
             # Inspect pane tail for yes/no prompt
             tail = self._capture_pane_tail(pane_id, lines=80)
             if self._detect_yes_no_prompt(tail):
-                # Answer 'y' then Enter
-                self._tmux_send_keys(pane_id, ['y', 'Enter'])
+                # Send 'y' as literal text without Enter first
+                self._tmux_run(['send-keys', '-t', pane_id, '-l', 'y'])
+                # Then send Enter separately to submit
+                self._tmux_run(['send-keys', '-t', pane_id, 'C-m'])
                 _log_debug(f"yaruki: answered 'y' to yes/no on {pane_id}")
                 return
             # Otherwise just resend previous command
@@ -588,10 +594,10 @@ class YadonPet(QWidget):
         # Show the opposite state (what it will become when clicked)
         if self.yaruki_switch_mode:
             # Currently ON, show OFF option
-            toggle_text = 'やるきスイッチ　ＯＦＦ'
+            toggle_text = YARUKI_MENU_OFF_TEXT
         else:
             # Currently OFF, show ON option
-            toggle_text = 'やるきスイッチ　ＯＮ'
+            toggle_text = YARUKI_MENU_ON_TEXT
         
         self.pokemon_menu.add_item(toggle_text, 'toggle_yaruki')
         self.pokemon_menu.add_item('とじる', 'close')
@@ -603,12 +609,12 @@ class YadonPet(QWidget):
                 if not self.yaruki_switch_mode:
                     # Was OFF, menu showed ON, so turn ON
                     self.yaruki_switch_mode = True
-                    message = 'やるきスイッチ　ＯＮ！\nはやさが　あがった！'
+                    message = YARUKI_SWITCH_ON_MESSAGE
                     bubble_type = 'claude'
                 else:
                     # Was ON, menu showed OFF, so turn OFF
                     self.yaruki_switch_mode = False
-                    message = 'やるきスイッチ　ＯＦＦ\nゆったりモードに　もどった'
+                    message = YARUKI_SWITCH_OFF_MESSAGE
                     bubble_type = 'normal'
                 
                 # Update animation speed
