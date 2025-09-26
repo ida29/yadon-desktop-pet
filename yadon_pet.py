@@ -34,14 +34,10 @@ from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
 # Hook handling removed (hooks are no longer used)
 from pixel_data import build_pixel_data
-from config import DEBUG_LOG
+from utils import log_debug, run_tmux
 
 def _log_debug(msg: str):
-    try:
-        with open(DEBUG_LOG, 'a') as f:
-            f.write(f"[yadon_pet] {msg}\n")
-    except Exception:
-        pass
+    log_debug('yadon_pet', msg)
 
 
 def _mac_set_top_nonactivating(widget: QWidget):
@@ -323,14 +319,7 @@ class YadonPet(QWidget):
         painter.drawText(self.rect().adjusted(0, 68, 0, 0), Qt.AlignmentFlag.AlignHCenter, session_text)
 
     def _tmux_run(self, args):
-        try:
-            # Resolve tmux path quickly
-            tmux_path = shutil.which('tmux') or '/opt/homebrew/bin/tmux'
-            result = subprocess.run([tmux_path] + args, capture_output=True, text=True)
-            return result
-        except Exception as e:
-            _log_debug(f"tmux run error: {e}")
-            return None
+        return run_tmux(args, 'yadon_pet')
 
     def _list_relevant_panes(self):
         """Return list of panes in this session that run target CLIs."""
@@ -435,17 +424,7 @@ class YadonPet(QWidget):
                             msg = tmpl.format(name=friendly)
                         except Exception:
                             msg = f"{friendly}……　いまは　しずか　みたい　やぁん……"
-                        if self.bubble:
-                            self.bubble.close()
-                            self.bubble = None
-                        self.bubble = SpeechBubble(msg, self, bubble_type='hook')
-                        self.bubble.show()
-                        # Auto-hide after configured duration
-                        def _close_soft():
-                            if self.bubble:
-                                self.bubble.close()
-                                self.bubble = None
-                        QTimer.singleShot(BUBBLE_DISPLAY_TIME, _close_soft)
+                        self._show_bubble(msg, 'hook')
                         st['soft_notified'] = True
                     # Second stage: force if enabled
                     if idle >= IDLE_FORCE_THRESHOLD_SEC and not st.get('force_done'):
@@ -454,16 +433,7 @@ class YadonPet(QWidget):
                             # Optional feedback bubble
                             friendly = self._friendly_cli_name(name)
                             hard_msg = YARUKI_FORCE_MESSAGE.format(name=friendly)
-                            if self.bubble:
-                                self.bubble.close()
-                                self.bubble = None
-                            self.bubble = SpeechBubble(hard_msg, self, bubble_type='hook')
-                            self.bubble.show()
-                            def _close_force():
-                                if self.bubble:
-                                    self.bubble.close()
-                                    self.bubble = None
-                            QTimer.singleShot(BUBBLE_DISPLAY_TIME, _close_force)
+                            self._show_bubble(hard_msg, 'hook')
                         st['force_done'] = True
                 self.pane_state[pane_id] = st
             # Cleanup state for panes that disappeared
@@ -621,13 +591,7 @@ class YadonPet(QWidget):
                 self.update_animation_speed()
                 
                 try:
-                    if self.bubble:
-                        self.bubble.close()
-                        self.bubble = None
-                    self.bubble = SpeechBubble(message, self, bubble_type=bubble_type)
-                    self.bubble.show()
-                    # Show for longer to make it clearer
-                    QTimer.singleShot(3000, lambda: self.bubble.close() if self.bubble else None)
+                    self._show_bubble(message, bubble_type, display_time=3000)
                 except Exception:
                     pass
         
@@ -687,20 +651,8 @@ class YadonPet(QWidget):
         self.animation.start()
     
     def show_message(self):
-        if self.bubble:
-            self.bubble.close()
-            self.bubble = None
-        
         message = random.choice(RANDOM_MESSAGES)
-        self.bubble = SpeechBubble(message, self, bubble_type='normal')  # Normal bubble
-        self.bubble.show()
-        
-        # Hide bubble after 5 seconds
-        def close_bubble():
-            if self.bubble:
-                self.bubble.close()
-                self.bubble = None
-        QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
+        self._show_bubble(message, 'normal')
     
     def moveEvent(self, event):
         """Update bubble and menu position when Yadon moves"""
@@ -722,7 +674,32 @@ class YadonPet(QWidget):
             
             self.pokemon_menu.move(menu_x, menu_y)
     
-    
+
+    def _show_bubble(self, message, bubble_type='normal', display_time=None):
+        """Display a speech bubble with the given message
+
+        Args:
+            message: The message to display
+            bubble_type: Type of bubble ('normal', 'hook', 'claude')
+            display_time: How long to display in milliseconds (default: BUBBLE_DISPLAY_TIME)
+        """
+        if self.bubble:
+            self.bubble.close()
+            self.bubble = None
+
+        self.bubble = SpeechBubble(message, self, bubble_type=bubble_type)
+        self.bubble.show()
+
+        # Hide bubble after specified time
+        if display_time is None:
+            display_time = BUBBLE_DISPLAY_TIME
+
+        def close_bubble():
+            if self.bubble:
+                self.bubble.close()
+                self.bubble = None
+        QTimer.singleShot(display_time, close_bubble)
+
     def check_tmux(self):
         """Check if any tmux session is running"""
         try:
@@ -751,30 +728,12 @@ class YadonPet(QWidget):
     def show_welcome_message(self):
         """Show message when tmux sessions appear"""
         message = random.choice(WELCOME_MESSAGES)
-        if self.bubble:
-            self.bubble.close()
-            self.bubble = None
-        self.bubble = SpeechBubble(message, self, bubble_type='normal')  # Normal bubble
-        self.bubble.show()
-        def close_bubble():
-            if self.bubble:
-                self.bubble.close()
-                self.bubble = None
-        QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
+        self._show_bubble(message, 'normal')
     
     def show_goodbye_message(self):
         """Show message when no tmux sessions remain"""
         message = random.choice(GOODBYE_MESSAGES)
-        if self.bubble:
-            self.bubble.close()
-            self.bubble = None
-        self.bubble = SpeechBubble(message, self, bubble_type='normal')  # Normal bubble
-        self.bubble.show()
-        def close_bubble():
-            if self.bubble:
-                self.bubble.close()
-                self.bubble = None
-        QTimer.singleShot(BUBBLE_DISPLAY_TIME, close_bubble)
+        self._show_bubble(message, 'normal')
 
 
 def signal_handler(sig, frame):

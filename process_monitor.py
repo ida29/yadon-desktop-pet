@@ -1,47 +1,19 @@
 """Tmux session monitoring functionality for Yadon Desktop Pet"""
 
-import os
-import shutil
-import subprocess
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
-from config import VARIANT_ORDER, MAX_YADON_COUNT, DEBUG_LOG
+from config import VARIANT_ORDER, MAX_YADON_COUNT
+from utils import log_debug, run_tmux
 
 
 def _log_debug(message: str):
-    try:
-        with open(DEBUG_LOG, 'a') as log:
-            log.write(f"[process_monitor] {message}\n")
-    except Exception:
-        pass
-
-
-def _tmux_bin() -> str:
-    """Resolve tmux binary path robustly."""
-    # Try environment PATH first
-    path = shutil.which('tmux')
-    if path:
-        return path
-    # Common Homebrew paths
-    for candidate in ('/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'):
-        if os.path.exists(candidate):
-            return candidate
-    # Fallback to plain name
-    return 'tmux'
+    log_debug('process_monitor', message)
 
 
 def _run_tmux(args):
     """Run tmux with resolved binary, return CompletedProcess or None."""
-    cmd = [_tmux_bin()] + args
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            _log_debug(f"tmux call failed: {' '.join(cmd)} | rc={result.returncode} | err={result.stderr.strip()}")
-        return result
-    except Exception as e:
-        _log_debug(f"tmux invoke error: {e}")
-        return None
+    return run_tmux(args, 'process_monitor')
 
 
 class ProcessMonitor(QTimer):
