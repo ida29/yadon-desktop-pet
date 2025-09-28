@@ -226,8 +226,15 @@ class YadonPet(QWidget):
     def update_tmux_status(self):
         try:
             if not self.tmux_session:
-                self.tmux_status_text = 'N/A'
-                return
+                # Auto-startケースで tmux 起動前にプロセスが立ち上がった場合、
+                # 後からセッションができたら自動でアタッチする
+                new_session = find_tmux_session()
+                if new_session:
+                    self.tmux_session = new_session
+                    _log_debug(f"update_tmux_status: attached to late session {new_session}")
+                else:
+                    self.tmux_status_text = 'N/A'
+                    return
             # Determine the active window + pane within this session
             fmt = '#{?window_active,1,0} #{?pane_active,1,0} #{session_name} #{window_index} #{pane_index}'
             res = self._tmux_run(['list-panes', '-t', str(self.tmux_session), '-F', fmt])
@@ -708,6 +715,12 @@ class YadonPet(QWidget):
             if tmux_running and not self.tmux_active:
                 # tmux just started
                 self.tmux_active = True
+                # セッション未確定ならここで取得
+                if not self.tmux_session:
+                    new_session = find_tmux_session()
+                    if new_session:
+                        self.tmux_session = new_session
+                        _log_debug(f"check_tmux: late attach to {new_session}")
                 self.show_welcome_message()
                 self.show()
             elif not tmux_running and self.tmux_active:

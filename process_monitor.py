@@ -29,7 +29,16 @@ class ProcessMonitor(QTimer):
         current_count = count_tmux_sessions()
         _log_debug(f"check_processes: last_count={self.last_count}, current_count={current_count}")
         current_count = min(current_count, MAX_YADON_COUNT) if current_count > 0 else 0
-        
+
+        # 既存ペットがセッション未設定（起動時に tmux が無かった）なら割り当てを試みる
+        if current_count > 0:
+            sessions_now = get_tmux_sessions()
+            for idx, pet in enumerate(self.pets):
+                if not getattr(pet, 'tmux_session', None):
+                    if idx < len(sessions_now):
+                        pet.tmux_session = sessions_now[idx]
+                        _log_debug(f"late assign session {sessions_now[idx]} to pet index {idx}")
+
         if current_count != self.last_count:
             # Process count changed, update Yadon instances
             if current_count > self.last_count:
