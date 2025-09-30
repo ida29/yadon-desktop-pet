@@ -47,32 +47,36 @@ class ProcessMonitor(QTimer):
                 from PyQt6.QtGui import QCursor
                 screen_obj = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
                 screen = screen_obj.geometry()
-                
+
                 # Calculate positions for bottom-right alignment
                 margin = 20  # Margin from screen edges
                 spacing = 10  # Space between Yadons
-                
+
                 # Get current tmux session names
                 sessions = get_tmux_sessions()
                 _log_debug(f"adding pets for sessions={sessions}")
-                
-                for i in range(self.last_count, current_count):
+
+                # Start index: If pets list is empty (PC restart case), start from 0
+                # Otherwise, continue from where we left off
+                start_index = len(self.pets)
+
+                for i in range(start_index, current_count):
                     # Import here to avoid circular import
                     from yadon_pet import YadonPet
                     import random
-                    
+
                     session_name = sessions[i] if i < len(sessions) else None
                     # Randomly select variant with equal probability
                     variant = random.choice(VARIANT_ORDER)
                     pet = YadonPet(tmux_session=session_name, variant=variant)
-                    
+
                     # Position in bottom-right, stacking from right to left
                     from config import WINDOW_WIDTH, WINDOW_HEIGHT
                     x_pos = screen.width() - margin - (WINDOW_WIDTH + spacing) * (len(self.pets) + 1)
                     y_pos = screen.height() - margin - WINDOW_HEIGHT
                     _log_debug(f"moving pet for session={session_name} to ({x_pos},{y_pos})")
                     pet.move(x_pos, y_pos)
-                    
+
                     self.pets.append(pet)
                     pet.show()
             elif current_count < self.last_count:

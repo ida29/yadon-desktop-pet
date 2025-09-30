@@ -759,7 +759,7 @@ def main():
     # Check for existing instance
     lockfile_path = '/tmp/yadon_pet.lock'
     lockfile = None
-    
+
     try:
         # Try to create/open lock file
         lockfile = open(lockfile_path, 'w')
@@ -784,17 +784,17 @@ def main():
         except:
             print("Failed to start Yadon - another instance may be running")
             sys.exit(1)
-    
+
     # Set up signal handler for clean exit
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     app = QApplication(sys.argv)
-    
+
     # Also handle Ctrl+C in Qt event loop
     timer = QTimer()
     timer.timeout.connect(lambda: None)  # Dummy timer to process events
     timer.start(500)
-    
+
     # Create Yadon pets based on number of tmux sessions
     pets = []
     tmux_count = count_tmux_sessions()
