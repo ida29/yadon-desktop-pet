@@ -124,7 +124,11 @@ TMUX_CLI_NAMES = [
     'claude',
     'codex',
     'codex-cli',
-    'gemini'
+    'gemini',
+    'fish',  # Added for testing
+    'bash',  # Added for testing
+    'zsh',   # Added for testing
+    'sh'     # Added for testing
 ]
 
 # Friendly display names for tools (match by substring, case-insensitive)

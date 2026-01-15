@@ -235,31 +235,43 @@ class YadonPet(QWidget):
                 else:
                     self.tmux_status_text = 'N/A'
                     return
-            # Determine the active window + pane within this session
-            fmt = '#{?window_active,1,0} #{?pane_active,1,0} #{session_name} #{window_index} #{pane_index}'
-            res = self._tmux_run(['list-panes', '-t', str(self.tmux_session), '-F', fmt])
-            chosen = None
+
+            # Get active window and pane using list-windows and list-panes separately
+            # First, get the active window index for this session
+            active_window_idx = None
+            res = self._tmux_run(['list-windows', '-t', str(self.tmux_session), '-F', '#{window_index}:#{window_active}'])
             if res and res.returncode == 0:
                 for line in res.stdout.splitlines():
-                    parts = line.strip().split()
-                    if len(parts) >= 5:
-                        win_act, pane_act, sess, win_idx, pane_idx = parts[:5]
-                        if win_act == '1' and pane_act == '1':
-                            chosen = f"{sess} {win_idx} {pane_idx}"
-                            break
-                if not chosen:
-                    # Fallback to first pane line
+                    parts = line.strip().split(':')
+                    if len(parts) == 2 and parts[1] == '1':
+                        active_window_idx = parts[0]
+                        break
+
+            # If we found the active window, get active pane
+            if active_window_idx is not None:
+                res = self._tmux_run(['list-panes', '-t', f'{self.tmux_session}:{active_window_idx}', '-F', '#{pane_index}:#{pane_active}'])
+                active_pane_idx = None
+                if res and res.returncode == 0:
                     for line in res.stdout.splitlines():
-                        parts = line.strip().split()
-                        if len(parts) >= 5:
-                            _, _, sess, win_idx, pane_idx = parts[:5]
-                            chosen = f"{sess} {win_idx} {pane_idx}"
+                        parts = line.strip().split(':')
+                        if len(parts) == 2 and parts[1] == '1':
+                            active_pane_idx = parts[0]
                             break
-            # Final fallback via display-message
-            if not chosen:
+
+                # Construct the status text
+                if active_pane_idx is not None:
+                    chosen = f"{self.tmux_session} {active_window_idx} {active_pane_idx}"
+                else:
+                    # Fallback to just window if no active pane found
+                    chosen = f"{self.tmux_session} {active_window_idx} 0"
+            else:
+                # Final fallback via display-message
                 res2 = self._tmux_run(['display-message', '-p', '-t', str(self.tmux_session), '#S #I #P'])
                 if res2 and res2.returncode == 0:
                     chosen = res2.stdout.strip()
+                else:
+                    chosen = f"{self.tmux_session} 0 0"
+
             if chosen and self.tmux_status_text != chosen:
                 self.tmux_status_text = chosen
                 self.update()
@@ -397,6 +409,7 @@ class YadonPet(QWidget):
             import time
             now = time.time()
             panes = self._list_relevant_panes()
+            _log_debug(f"check_cli_activity: found {len(panes)} relevant panes, yaruki_switch={self.yaruki_switch_mode}")
             for pane in panes:
                 pid = pane['pane_pid']
                 pane_id = pane['pane_id']
@@ -406,6 +419,7 @@ class YadonPet(QWidget):
                 st = self.pane_state.get(pane_id, {'last_hash': None, 'last_change_ts': now, 'soft_notified': False, 'force_done': False, 'allow_done': False, 'name': name})
                 # Detect change
                 if st['last_hash'] != h:
+                    _log_debug(f"pane {pane_id} content changed")
                     st['last_hash'] = h
                     st['last_change_ts'] = now
                     st['soft_notified'] = False
@@ -422,6 +436,7 @@ class YadonPet(QWidget):
                             st['allow_done'] = True
                             _log_debug(f"yaruki: auto-allowed command on {pane_id}")
                     idle = now - st['last_change_ts']
+                    _log_debug(f"pane {pane_id} idle for {idle:.1f}s (soft={IDLE_SOFT_THRESHOLD_SEC}s, force={IDLE_FORCE_THRESHOLD_SEC}s)")
                     # First stage: soft hint
                     if idle >= IDLE_SOFT_THRESHOLD_SEC and not st.get('soft_notified'):
                         # Show blue bubble (gentle)
@@ -431,11 +446,14 @@ class YadonPet(QWidget):
                             msg = tmpl.format(name=friendly)
                         except Exception:
                             msg = f"{friendly}……　いまは　しずか　みたい　やぁん……"
+                        _log_debug(f"showing soft hint for {pane_id}: {msg}")
                         self._show_bubble(msg, 'hook')
                         st['soft_notified'] = True
                     # Second stage: force if enabled
                     if idle >= IDLE_FORCE_THRESHOLD_SEC and not st.get('force_done'):
+                        _log_debug(f"pane {pane_id} reached force threshold, yaruki_switch={self.yaruki_switch_mode}")
                         if self.yaruki_switch_mode:
+                            _log_debug(f"executing yaruki_force for {pane_id}")
                             self._yaruki_force(pane_id)
                             # Optional feedback bubble
                             friendly = self._friendly_cli_name(name)
@@ -464,16 +482,20 @@ class YadonPet(QWidget):
 
     def _yaruki_force(self, pane_id):
         try:
+            _log_debug(f"_yaruki_force called for {pane_id}")
             # Inspect pane tail for yes/no prompt
             tail = self._capture_pane_tail(pane_id, lines=80)
+            _log_debug(f"checking for yes/no prompt in last 80 lines")
             if self._detect_yes_no_prompt(tail):
                 # Send 'y' as literal text without Enter first
+                _log_debug(f"detected yes/no prompt, sending 'y' to {pane_id}")
                 self._tmux_run(['send-keys', '-t', pane_id, '-l', 'y'])
                 # Then send Enter separately to submit
                 self._tmux_run(['send-keys', '-t', pane_id, 'C-m'])
                 _log_debug(f"yaruki: answered 'y' to yes/no on {pane_id}")
                 return
             # Otherwise just resend previous command
+            _log_debug(f"no yes/no prompt detected, resending previous command to {pane_id}")
             self._tmux_send_keys(pane_id, ['Up', 'Enter'])
             _log_debug(f"yaruki: resent prev command to {pane_id}")
         except Exception as e:
@@ -588,12 +610,14 @@ class YadonPet(QWidget):
                     self.yaruki_switch_mode = True
                     message = YARUKI_SWITCH_ON_MESSAGE
                     bubble_type = 'claude'
+                    _log_debug(f"yaruki switch turned ON")
                 else:
                     # Was ON, menu showed OFF, so turn OFF
                     self.yaruki_switch_mode = False
                     message = YARUKI_SWITCH_OFF_MESSAGE
                     bubble_type = 'normal'
-                
+                    _log_debug(f"yaruki switch turned OFF")
+
                 # Update animation speed
                 self.update_animation_speed()
                 
