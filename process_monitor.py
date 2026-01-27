@@ -93,8 +93,6 @@ class ProcessMonitor(QTimer):
                         pet.action_timer.stop()
                     if hasattr(pet, 'monitor_timer'):
                         pet.monitor_timer.stop()
-                    if hasattr(pet, 'hook_timer'):
-                        pet.hook_timer.stop()
                     # Close the widget
                     pet.close()
                     pet.deleteLater()  # Ensure proper cleanup

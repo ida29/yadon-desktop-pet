@@ -5,34 +5,30 @@ import signal
 import subprocess
 import os
 import fcntl
-import sys as _sys
 import ctypes
-import shutil
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPropertyAnimation, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QMouseEvent, QFont, QCursor
 from pokemon_menu import PokemonMenu
 
 from config import (
-    COLOR_SCHEMES, RANDOM_MESSAGES, WELCOME_MESSAGES, GOODBYE_MESSAGES,
+    RANDOM_MESSAGES, WELCOME_MESSAGES, GOODBYE_MESSAGES,
     PIXEL_SIZE, WINDOW_WIDTH, WINDOW_HEIGHT,
     FACE_ANIMATION_INTERVAL, RANDOM_ACTION_MIN_INTERVAL, RANDOM_ACTION_MAX_INTERVAL,
     CLAUDE_CHECK_INTERVAL, MOVEMENT_DURATION,
     TINY_MOVEMENT_RANGE, SMALL_MOVEMENT_RANGE, TINY_MOVEMENT_PROBABILITY,
     BUBBLE_DISPLAY_TIME, PID_FONT_FAMILY, PID_FONT_SIZE,
     VARIANT_ORDER, MAX_YADON_COUNT,
-    TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS, OUTPUT_IDLE_THRESHOLD_SEC,
+    TMUX_CLI_NAMES, ACTIVITY_CHECK_INTERVAL_MS,
     IDLE_HINT_MESSAGES,
     IDLE_SOFT_THRESHOLD_SEC, IDLE_FORCE_THRESHOLD_SEC,
-    YARUKI_SWITCH_MODE, YARUKI_SEND_KEYS,
+    YARUKI_SWITCH_MODE,
     FACE_ANIMATION_INTERVAL_FAST,
-    FRIENDLY_TOOL_NAMES,
     YARUKI_SWITCH_ON_MESSAGE, YARUKI_SWITCH_OFF_MESSAGE, YARUKI_FORCE_MESSAGE,
     YARUKI_MENU_ON_TEXT, YARUKI_MENU_OFF_TEXT,
 )
 from speech_bubble import SpeechBubble
 from process_monitor import ProcessMonitor, count_tmux_sessions, get_tmux_sessions, find_tmux_session
-# Hook handling removed (hooks are no longer used)
 from pixel_data import build_pixel_data
 from utils import log_debug, run_tmux
 
@@ -152,7 +148,6 @@ class YadonPet(QWidget):
             self.action_timer.stop()
         if hasattr(self, 'monitor_timer'):
             self.monitor_timer.stop()
-        # hook_timer removed (hooks are not used)
         super().closeEvent(event)
     
     def init_ui(self):
@@ -389,21 +384,6 @@ class YadonPet(QWidget):
             return ''
         return res.stdout[-2000:]  # limit
 
-    def _friendly_cli_name(self, name: str) -> str:
-        try:
-            s = (name or '').lower()
-            # Mapping by configured friendly names
-            for key, label in FRIENDLY_TOOL_NAMES.items():
-                if key.lower() in s:
-                    return label
-            # Fall back to known CLI tokens
-            for key in TMUX_CLI_NAMES:
-                if key in s:
-                    return key
-            return name
-        except Exception:
-            return name
-
     def check_cli_activity(self):
         try:
             import time
@@ -439,13 +419,13 @@ class YadonPet(QWidget):
                     _log_debug(f"pane {pane_id} idle for {idle:.1f}s (soft={IDLE_SOFT_THRESHOLD_SEC}s, force={IDLE_FORCE_THRESHOLD_SEC}s)")
                     # First stage: soft hint
                     if idle >= IDLE_SOFT_THRESHOLD_SEC and not st.get('soft_notified'):
-                        # Show blue bubble (gentle)
-                        friendly = self._friendly_cli_name(name)
+                        # Show blue bubble (gentle) with pane number
+                        pane_num = pane_id.lstrip('%')
                         try:
                             tmpl = random.choice(IDLE_HINT_MESSAGES)
-                            msg = tmpl.format(name=friendly)
+                            msg = tmpl.format(name=pane_num)
                         except Exception:
-                            msg = f"{friendly}……　いまは　しずか　みたい　やぁん……"
+                            msg = f"{pane_num}……　いまは　しずか　みたい　やぁん……"
                         _log_debug(f"showing soft hint for {pane_id}: {msg}")
                         self._show_bubble(msg, 'hook')
                         st['soft_notified'] = True
@@ -455,9 +435,9 @@ class YadonPet(QWidget):
                         if self.yaruki_switch_mode:
                             _log_debug(f"executing yaruki_force for {pane_id}")
                             self._yaruki_force(pane_id)
-                            # Optional feedback bubble
-                            friendly = self._friendly_cli_name(name)
-                            hard_msg = YARUKI_FORCE_MESSAGE.format(name=friendly)
+                            # Optional feedback bubble with pane number
+                            pane_num = pane_id.lstrip('%')
+                            hard_msg = YARUKI_FORCE_MESSAGE.format(name=pane_num)
                             self._show_bubble(hard_msg, 'hook')
                         st['force_done'] = True
                 self.pane_state[pane_id] = st
@@ -754,14 +734,9 @@ class YadonPet(QWidget):
                 # Don't hide when tool stops
                 # QTimer.singleShot(5000, self.hide)  # Hide after goodbye message
 
-            # Hook messages are now checked by separate timer
-
         except Exception as e:
             print(f"Error checking tmux status: {e}")
-    
-    # check_hook_messages removed (hooks not used)
-    
-    
+
     def show_welcome_message(self):
         """Show message when tmux sessions appear"""
         message = random.choice(WELCOME_MESSAGES)

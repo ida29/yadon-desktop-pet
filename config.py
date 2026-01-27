@@ -131,18 +131,9 @@ TMUX_CLI_NAMES = [
     'sh'     # Added for testing
 ]
 
-# Friendly display names for tools (match by substring, case-insensitive)
-FRIENDLY_TOOL_NAMES = {
-    'codex': 'コダック',
-    'codex-cli': 'コダック',
-    'claude': 'クロバット',
-    'gemini': 'シェイミ'
-}
-
 # Monitoring intervals
 CLAUDE_CHECK_INTERVAL = 5000  # 5 seconds (check tmux sessions)
 ACTIVITY_CHECK_INTERVAL_MS = 10000  # 10 seconds (check CLI activity)
-OUTPUT_IDLE_THRESHOLD_SEC = 60  # 60 seconds of no output -> notify (legacy)
 
 # Two-stage idle thresholds
 IDLE_SOFT_THRESHOLD_SEC = 10  # First gentle nudge
